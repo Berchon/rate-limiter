@@ -2,3 +2,11 @@
 GET http://localhost:8080/health
 Accept: application/json
 
+### Ping Check
+GET http://localhost:8080/ping
+Accept: application/json
+
+### Create API Key
+POST http://localhost:8080/api-key
+Accept: application/json
+Content-Type: application/json

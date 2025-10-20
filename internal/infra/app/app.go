@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/Berchon/rate-limiter/internal/infra/config"
 	"github.com/Berchon/rate-limiter/internal/infra/di"
+	httpInfra "github.com/Berchon/rate-limiter/internal/infra/http"
 )
 
 type App interface {
@@ -17,31 +19,34 @@ type App interface {
 	Stop(ctx context.Context) error
 }
 
-type appImpl struct {
-	cfg  *config.Config
-	deps *di.Dependencies
+type app struct {
+	cfg    *config.Config
+	server httpInfra.Server
 }
 
-// New cria a aplicação, carregando configuração e dependências
-func New() App {
+// func NewApp(cfg *config.Config) App {
+func NewApp() App {
 	// Carrega configuração
-	cfgService := config.NewConfigService()
-	cfg, err := cfgService.Load()
+	// cfgService := config.NewConfigService()
+	cfg, err := config.LoadConfig()
 	if err != nil {
 		log.Fatalf("❌ failed to load config: %v", err)
 	}
 
-	// Cria dependências
+	// 1️⃣ Constrói dependências
 	deps := di.BuildDependencies(cfg)
 
-	return &appImpl{
-		cfg:  cfg,
-		deps: deps,
+	// 2️⃣ Cria o servidor com config e dependências
+	srv := httpInfra.NewServer(cfg, deps)
+
+	return &app{
+		cfg:    cfg,
+		server: srv,
 	}
 }
 
 // Start inicia o servidor e aguarda sinais de shutdown
-func (a *appImpl) Start() {
+func (a *app) Start() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -49,12 +54,10 @@ func (a *appImpl) Start() {
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sigCh)
 
-	server := a.deps.Server
-
 	// Inicia servidor
 	go func() {
-		log.Printf("🚀 Starting server on %s", server.Addr())
-		if err := server.Start(); err != nil {
+		log.Printf("🚀 Starting server on %s", a.cfg.AppPort)
+		if err := a.server.Start(); err != nil {
 			if err.Error() != "http: Server closed" {
 				log.Fatalf("💥 Server error: %v", err)
 			}
@@ -79,7 +82,7 @@ func (a *appImpl) Start() {
 	}
 }
 
-// Stop realiza shutdown gracioso do servidor
-func (a *appImpl) Stop(ctx context.Context) error {
-	return a.deps.Server.Stop(ctx)
+func (a *app) Stop(ctx context.Context) error {
+	fmt.Println("Stopping application...")
+	return a.server.Stop(ctx)
 }

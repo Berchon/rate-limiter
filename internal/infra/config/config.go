@@ -9,30 +9,20 @@ import (
 )
 
 type Config struct {
-	AppPort                 string
-	RedisHost               string
-	RedisPort               string
-	RedisDB                 int
-	RedisPassword           string
-	RateByIPTimeWindow      int
-	RateByIPMaxRequests     int
-	RateByIPBlockedDuration int
-	EnableTokenLimiting     bool
-	DefaultTokenTTL         int
+	AppPort                 string `mapstructure:"APP_PORT"`
+	RedisHost               string `mapstructure:"REDIS_HOST"`
+	RedisPort               string `mapstructure:"REDIS_PORT"`
+	RedisDB                 int    `mapstructure:"REDIS_DB"`
+	RedisPassword           string `mapstructure:"REDIS_PASSWORD"`
+	RateByIPTimeWindow      int    `mapstructure:"RATE_BY_IP_TIME_WINDOW"`
+	RateByIPMaxRequests     int    `mapstructure:"RATE_BY_IP_MAX_REQUESTS"`
+	RateByIPBlockedDuration int    `mapstructure:"RATE_BY_IP_BLOCKED_DURATION"`
+	EnableTokenLimiting     bool   `mapstructure:"ENABLE_TOKEN_LIMITING"`
+	DefaultTokenTTL         int    `mapstructure:"DEFAULT_TOKEN_TTL"`
 }
 
-type ConfigService interface {
-	Load() (*Config, error)
-}
-
-type configService struct{}
-
-func NewConfigService() ConfigService {
-	return &configService{}
-}
-
-func (c *configService) Load() (*Config, error) {
-	if err := godotenv.Load(".env"); err != nil {
+func LoadConfig() (*Config, error) {
+	if err := godotenv.Load("../../.env"); err != nil {
 		log.Println("⚠️ No .env file found (probably running in Docker or production)")
 	}
 

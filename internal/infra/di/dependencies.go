@@ -1,30 +1,60 @@
 package di
 
 import (
+	"fmt"
+	"time"
+
+	"github.com/Berchon/rate-limiter/internal/business/usecase"
 	"github.com/Berchon/rate-limiter/internal/infra/config"
-	httpInfra "github.com/Berchon/rate-limiter/internal/infra/http"
+	"github.com/Berchon/rate-limiter/internal/infra/http/handler"
+	redisStore "github.com/Berchon/rate-limiter/internal/infra/redis"
+	redis "github.com/redis/go-redis/v9"
 )
 
-// Dependencies agrupa as instâncias compartilhadas da aplicação
 type Dependencies struct {
-	Server httpInfra.Server
-	// RateLimiterUC usecase.RateLimiterUseCase
-	// futuramente: logger, storage, outros usecases
+	GetHealthHandler    handler.GetHealthHandler
+	GetPingHandler      handler.GetPingHandler
+	CreateAPIKeyHandler handler.CreateAPIKeyHandler
+	// RateLimitMiddleware *middleware.RateLimitMiddleware
 }
 
-// BuildDependencies cria e retorna todas as dependências da aplicação
 func BuildDependencies(cfg *config.Config) *Dependencies {
-	// --- HTTP Server ---
-	server := httpInfra.NewServer(":" + cfg.AppPort)
+	// --- Storage / LimiterStore ---
+	defaultTTL := time.Duration(cfg.DefaultTokenTTL) * time.Second
 
-	// --- Services ---
-	// rateLimiterService := service.NewRateLimiterService(cfg.RateLimitRPS, cfg.BurstCapacity)
+	// Alternativa InMemory
+	// store := storage.NewInMemoryStore(defaultTTL)
 
-	// --- UseCases ---
-	// rateLimiterUC := usecase.NewRateLimiterUseCase(rateLimiterService)
+	// Cria cliente Redis
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     fmt.Sprintf("%s:%s", cfg.RedisHost, cfg.RedisPort),
+		Password: cfg.RedisPassword,
+		DB:       cfg.RedisDB,
+	})
+
+	// Cria store Redis
+	store := redisStore.NewRedisStore(redisClient, defaultTTL)
+
+	// 	// --- UseCases ---
+	rateLimiterUC := usecase.NewRateLimiterUseCase(
+		store,
+		cfg.RateByIPMaxRequests,
+		cfg.RateByIPTimeWindow,
+		cfg.RateByIPBlockedDuration,
+	)
+
+	// --- Handlers ---
+	createApiKeyHandler := handler.NewCreateAPIKeyHandler(&rateLimiterUC)
+	getHealthHandler := handler.NewGetHealthHandler()
+	getPingHandler := handler.NewGetPingHandler()
+
+	// Middleware de rate limit
+	// rateLimitMiddleware := middleware.NewRateLimitMiddleware(rateLimiterUC, cfg)
 
 	return &Dependencies{
-		Server: server,
-		// RateLimiterUC: rateLimiterUC,
+		GetHealthHandler:    getHealthHandler,
+		GetPingHandler:      getPingHandler,
+		CreateAPIKeyHandler: createApiKeyHandler,
+		// RateLimitMiddleware: &rateLimitMiddleware,
 	}
 }

@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
+	"github.com/Berchon/rate-limiter/internal/infra/config"
+	"github.com/Berchon/rate-limiter/internal/infra/di"
+	"github.com/Berchon/rate-limiter/internal/infra/http/routes"
+	"github.com/go-chi/chi"
 )
 
 type Server interface {
@@ -16,42 +18,35 @@ type Server interface {
 	Router() *chi.Mux
 }
 
-type serverImpl struct {
-	addr   string
-	server *http.Server
+type server struct {
+	cfg    *config.Config
+	srv    *http.Server
+	deps   *di.Dependencies
 	router *chi.Mux
 }
 
-// NewServer cria uma instância de servidor HTTP com chi e middlewares básicos
-func NewServer(addr string) Server {
+// NewServer cria uma instância de servidor HTTP e registra as rotas
+func NewServer(cfg *config.Config, deps *di.Dependencies) Server {
 	r := chi.NewRouter()
+	router := routes.RegisterRoutes(r, deps)
 
-	// Middlewares
-	r.Use(middleware.Logger)
-	r.Use(middleware.Recoverer)
-
-	// Rota de healthcheck
-	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
-	})
-
-	srv := &http.Server{
-		Addr:    addr,
-		Handler: r,
-	}
-
-	return &serverImpl{
-		addr:   addr,
-		server: srv,
-		router: r,
+	return &server{
+		cfg:    cfg,
+		deps:   deps,
+		router: router,
+		srv: &http.Server{
+			Addr:    fmt.Sprintf(":%s", cfg.AppPort),
+			Handler: r,
+		},
 	}
 }
 
 // Start inicia o servidor em uma goroutine
-func (s *serverImpl) Start() error {
+func (s *server) Start() error {
+	fmt.Printf("Server started at :%s\n", s.Addr())
+	// return s.srv.ListenAndServe()
 	go func() {
-		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := s.srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			fmt.Printf("💥 HTTP server error: %v\n", err)
 		}
 	}()
@@ -59,16 +54,17 @@ func (s *serverImpl) Start() error {
 }
 
 // Stop realiza shutdown gracioso do servidor
-func (s *serverImpl) Stop(ctx context.Context) error {
-	return s.server.Shutdown(ctx)
+func (s *server) Stop(ctx context.Context) error {
+	fmt.Println("Shutting down server...")
+	return s.srv.Shutdown(ctx)
 }
 
 // Addr retorna o endereço do servidor
-func (s *serverImpl) Addr() string {
-	return s.addr
+func (s *server) Addr() string {
+	return s.srv.Addr
 }
 
-// Router retorna o mux chi, permitindo adicionar middlewares ou rotas adicionais
-func (s *serverImpl) Router() *chi.Mux {
+// Router retorna o roteador chi.Mux
+func (s *server) Router() *chi.Mux {
 	return s.router
 }
