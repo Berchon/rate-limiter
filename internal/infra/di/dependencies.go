@@ -7,6 +7,7 @@ import (
 	"github.com/Berchon/rate-limiter/internal/business/usecase"
 	"github.com/Berchon/rate-limiter/internal/infra/config"
 	"github.com/Berchon/rate-limiter/internal/infra/http/handler"
+	"github.com/Berchon/rate-limiter/internal/infra/http/middleware"
 	redisStore "github.com/Berchon/rate-limiter/internal/infra/redis"
 	redis "github.com/redis/go-redis/v9"
 )
@@ -15,7 +16,7 @@ type Dependencies struct {
 	GetHealthHandler    handler.GetHealthHandler
 	GetPingHandler      handler.GetPingHandler
 	CreateAPIKeyHandler handler.CreateAPIKeyHandler
-	// RateLimitMiddleware *middleware.RateLimitMiddleware
+	RateLimitMiddleware *middleware.RateLimitMiddleware
 }
 
 func BuildDependencies(cfg *config.Config) *Dependencies {
@@ -49,12 +50,12 @@ func BuildDependencies(cfg *config.Config) *Dependencies {
 	getPingHandler := handler.NewGetPingHandler()
 
 	// Middleware de rate limit
-	// rateLimitMiddleware := middleware.NewRateLimitMiddleware(rateLimiterUC, cfg)
+	rateLimitMiddleware := middleware.NewRateLimitMiddleware(rateLimiterUC)
 
 	return &Dependencies{
 		GetHealthHandler:    getHealthHandler,
 		GetPingHandler:      getPingHandler,
 		CreateAPIKeyHandler: createApiKeyHandler,
-		// RateLimitMiddleware: &rateLimitMiddleware,
+		RateLimitMiddleware: &rateLimitMiddleware,
 	}
 }

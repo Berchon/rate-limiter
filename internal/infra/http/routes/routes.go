@@ -7,11 +7,6 @@ import (
 	"github.com/go-chi/chi"
 )
 
-// func RegisterRoutes(mux *http.ServeMux, deps *di.Dependencies) {
-// 	mux.Handle("/health", deps.HealthHandler)
-// 	mux.Handle("/ping", deps.PingHandler)
-// }
-
 // RegisterRoutes cria o roteamento completo da aplicação
 func RegisterRoutes(router *chi.Mux, handlers *di.Dependencies) *chi.Mux {
 	router.Get("/health", func(w http.ResponseWriter, r *http.Request) {

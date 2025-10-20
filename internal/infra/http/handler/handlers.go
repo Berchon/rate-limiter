@@ -7,7 +7,7 @@ type GetHealthHandler interface {
 }
 
 type getHealthHandler struct {
-	response *responseHandler
+	response *ResponseHandler
 }
 
 type status struct {
@@ -31,7 +31,7 @@ type GetPingHandler interface {
 }
 
 type getPingHandler struct {
-	response *responseHandler
+	response *ResponseHandler
 }
 
 func NewGetPingHandler() GetPingHandler {

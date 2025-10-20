@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	usecaseMock "github.com/Berchon/rate-limiter/internal/business/usecase/mock"
-	"github.com/Berchon/rate-limiter/internal/infra/config"
 )
 
 // === Helpers ===
@@ -20,7 +19,7 @@ import (
 func newTestMiddleware(allow bool, reason string, err error, expectedIP string, t *testing.T) RateLimitMiddleware {
 	limiter := &usecaseMock.MockRateLimiterUseCase{}
 	limiter.On("AllowRequest", expectedIP, mock.Anything, mock.Anything).Return(allow, reason, 0, 0, err)
-	mw := NewRateLimitMiddleware(limiter, &config.Config{})
+	mw := NewRateLimitMiddleware(limiter)
 	t.Cleanup(func() { limiter.AssertExpectations(t) })
 	return mw
 }

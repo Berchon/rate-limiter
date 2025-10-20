@@ -5,13 +5,13 @@ import (
 	"net/http"
 )
 
-type responseHandler struct{}
+type ResponseHandler struct{}
 
-func NewResponseHandler() *responseHandler {
-	return &responseHandler{}
+func NewResponseHandler() *ResponseHandler {
+	return &ResponseHandler{}
 }
 
-func (responseHandler *responseHandler) RequestResponse(w http.ResponseWriter, r *http.Request, body interface{}, statusCode int) {
+func (responseHandler *ResponseHandler) RequestResponse(w http.ResponseWriter, r *http.Request, body interface{}, statusCode int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 	json.NewEncoder(w).Encode(body)

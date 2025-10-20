@@ -7,8 +7,6 @@ import (
 	"time"
 
 	"github.com/Berchon/rate-limiter/internal/business/usecase"
-	"github.com/Berchon/rate-limiter/internal/infra/config"
-	infrahttp "github.com/Berchon/rate-limiter/internal/infra/http"
 )
 
 // RateLimitMiddleware define o contrato do middleware de rate limiting.
@@ -19,14 +17,14 @@ type RateLimitMiddleware interface {
 // rateLimitMiddleware é a implementação concreta.
 type rateLimitMiddleware struct {
 	limiter usecase.RateLimiterUseCase
-	cfg     *config.Config
+	// cfg     *config.Config
 }
 
 // NewRateLimitMiddleware cria uma nova instância do middleware.
-func NewRateLimitMiddleware(limiter usecase.RateLimiterUseCase, cfg *config.Config) RateLimitMiddleware {
+func NewRateLimitMiddleware(limiter usecase.RateLimiterUseCase) RateLimitMiddleware {
 	return &rateLimitMiddleware{
 		limiter: limiter,
-		cfg:     cfg,
+		// cfg:     cfg,
 	}
 }
 
@@ -38,7 +36,7 @@ func (m *rateLimitMiddleware) Handle(next stdhttp.Handler) stdhttp.Handler {
 
 		allowed, _, _, _, err := m.limiter.AllowRequest(ip, token, time.Now())
 		if err != nil || !allowed {
-			infrahttp.WriteRateLimitExceeded(w)
+			WriteRateLimitExceeded(w)
 			return
 		}
 

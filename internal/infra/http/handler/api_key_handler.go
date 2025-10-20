@@ -16,7 +16,7 @@ type CreateAPIKeyHandler interface {
 // apiKeyHandler struct concreta
 type createApiKeyHandler struct {
 	usecase  *usecase.RateLimiterUseCase
-	response *responseHandler
+	response *ResponseHandler
 }
 
 // NewAPIKeyHandler construtor
