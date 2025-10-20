@@ -6,6 +6,10 @@ Accept: application/json
 GET http://localhost:8080/ping
 Accept: application/json
 
+### Rate Limited Endpoint
+GET http://localhost:8080/protected
+Accept: application/json
+
 ### Create API Key
 POST http://localhost:8080/api-key
 Accept: application/json

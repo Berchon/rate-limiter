@@ -1,10 +1,9 @@
 package redis
 
 import (
+	"context"
 	"fmt"
 	"time"
-
-	"context"
 
 	"github.com/Berchon/rate-limiter/internal/business/entity"
 	"github.com/Berchon/rate-limiter/internal/business/service"
@@ -26,33 +25,52 @@ func NewRedisStore(client *redis.Client, defaultTTL time.Duration) service.Limit
 }
 
 // AddRequest registra uma requisição e retorna se é permitida + quantas restam
-func (r *RedisStore) AddRequest(key string, timestamp int64) (bool, int, error) {
+func (r *RedisStore) AddRequest(key string, timestamp int64, maxRequests int, timeWindowSec int, blockedDuration int) (bool, int, error) {
 	ctx := context.Background()
 
-	// Incrementa contador
+	// 1. Verifica se o IP ou token está bloqueado
+	blocked, remaining, err := r.IsBlocked(key)
+	if err != nil {
+		return false, 0, err
+	}
+	if blocked {
+		return false, remaining, nil
+	}
+
+	// 2. Incrementa o contador e garante TTL da janela
 	count, err := r.client.Incr(ctx, key).Result()
 	if err != nil {
 		return false, 0, err
 	}
 
-	// Define TTL se for a primeira vez
+	// Aplica TTL se for a primeira vez
 	ttl, err := r.client.TTL(ctx, key).Result()
 	if err != nil {
 		return false, 0, err
 	}
 	if ttl < 0 {
-		r.client.Expire(ctx, key, r.defaultTTL)
+		if err := r.client.Expire(ctx, key, time.Duration(timeWindowSec)*time.Second).Err(); err != nil {
+			return false, 0, err
+		}
 	}
 
-	// Recupera maxRequests do TTL configurado ou padrão
-	remaining := int(r.defaultTTL.Seconds()) - int(count)
-	allowed := remaining >= 0
-	return allowed, remaining, nil
+	// 3. Verifica se ultrapassou o limite
+	if int(count) > maxRequests {
+		// Bloqueia o IP
+		if blockedDuration > 0 {
+			if err := r.Block(key, blockedDuration); err != nil {
+				return false, 0, err
+			}
+		}
+		return false, 0, nil
+	}
+
+	remaining = maxRequests - int(count)
+	return true, remaining, nil
 }
 
 // GetConfigByToken retorna a configuração do token
 func (r *RedisStore) GetConfigByToken(token string) (*entity.TokenConfig, error) {
-	// Para simplificação, vamos retornar nil (será implementado conforme necessidade)
 	return nil, nil
 }
 
@@ -65,12 +83,12 @@ func (r *RedisStore) Block(key string, durationSec int) error {
 // IsBlocked verifica se a chave está bloqueada
 func (r *RedisStore) IsBlocked(key string) (bool, int, error) {
 	ctx := context.Background()
-	val, err := r.client.TTL(ctx, key+":blocked").Result()
+	ttl, err := r.client.TTL(ctx, key+":blocked").Result()
 	if err != nil {
 		return false, 0, err
 	}
-	if val > 0 {
-		return true, int(val.Seconds()), nil
+	if ttl > 0 {
+		return true, int(ttl.Seconds()), nil
 	}
 	return false, 0, nil
 }

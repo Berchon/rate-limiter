@@ -20,11 +20,14 @@ func RegisterRoutes(router *chi.Mux, handlers *di.Dependencies) *chi.Mux {
 
 	router.Post("/api-key", handlers.CreateAPIKeyHandler.Handle)
 
-	// router.Group(func(r chi.Router) {
-	// 	r.Use(handlers.RateLimitMiddleware.Handle)
+	router.Group(func(r chi.Router) {
+		r.Use(handlers.RateLimitMiddleware.Handle)
 
-	// 	// Aqui você adiciona outras rotas que precisam de proteção
-	// 	// r.Get("/protected", protectedHandler)
-	// })
+		// Aqui você adiciona outras rotas que precisam de proteção
+		r.Get("/protected", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("protected content"))
+		})
+	})
 	return router
 }

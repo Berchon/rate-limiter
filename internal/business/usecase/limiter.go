@@ -70,13 +70,20 @@ func (uc *rateLimiterUseCase) AllowRequest(ip string, token string, now time.Tim
 		return false, "blocked", 0, remainingSec, nil
 	}
 
-	// 4. Adiciona requisição no store
-	allowed, remaining, err := uc.store.AddRequest(key.String(), timestamp)
+	// 4. Adiciona requisição no store com maxRequests e blockedDuration
+	allowed, remaining, err := uc.store.AddRequest(
+		key.String(),
+		timestamp,
+		cfg.MaxRequests,
+		cfg.TimeWindowSeconds, // ← esse é o novo parâmetro
+		cfg.BlockedDurationSeconds,
+	)
+
 	if err != nil {
 		return false, "error adding request", 0, 0, err
 	}
 
-	// 5. Se excedeu → aplica bloqueio
+	// 5. Se excedeu → aplica bloqueio (redundante, mas seguro)
 	if !allowed {
 		if cfg.BlockedDurationSeconds > 0 {
 			if err := uc.store.Block(key.String(), cfg.BlockedDurationSeconds); err != nil {

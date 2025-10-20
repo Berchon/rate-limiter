@@ -5,7 +5,8 @@ import "github.com/Berchon/rate-limiter/internal/business/entity"
 // LimiterStore define a interface de persistência para o rate limiter
 type LimiterStore interface {
 	// AddRequest registra uma requisição e retorna se é permitida, quantas restam e possível erro
-	AddRequest(key string, timestamp int64) (allowed bool, remaining int, err error)
+	// Recebe maxRequests, timeWindowSec e blockedDuration para controle correto do rate limiter
+	AddRequest(key string, timestamp int64, maxRequests int, timeWindowSec int, blockedDuration int) (allowed bool, remaining int, err error)
 
 	// GetConfigByToken retorna a configuração do token, ou nil se não existir
 	GetConfigByToken(token string) (*entity.TokenConfig, error)

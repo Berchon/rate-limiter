@@ -16,7 +16,7 @@ type Dependencies struct {
 	GetHealthHandler    handler.GetHealthHandler
 	GetPingHandler      handler.GetPingHandler
 	CreateAPIKeyHandler handler.CreateAPIKeyHandler
-	RateLimitMiddleware *middleware.RateLimitMiddleware
+	RateLimitMiddleware middleware.RateLimitMiddleware
 }
 
 func BuildDependencies(cfg *config.Config) *Dependencies {
@@ -56,6 +56,6 @@ func BuildDependencies(cfg *config.Config) *Dependencies {
 		GetHealthHandler:    getHealthHandler,
 		GetPingHandler:      getPingHandler,
 		CreateAPIKeyHandler: createApiKeyHandler,
-		RateLimitMiddleware: &rateLimitMiddleware,
+		RateLimitMiddleware: rateLimitMiddleware,
 	}
 }

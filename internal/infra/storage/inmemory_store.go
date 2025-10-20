@@ -10,42 +10,51 @@ import (
 
 // InMemoryStore mantém contadores e bloqueios na memória
 type InMemoryStore struct {
-	mu         sync.Mutex
-	counters   map[string]int
-	blocked    map[string]time.Time
-	defaultTTL time.Duration
+	mu          sync.Mutex
+	counters    map[string]int
+	expirations map[string]time.Time
+	blocked     map[string]time.Time
 }
 
 // NewInMemoryStore cria uma nova instância de InMemoryStore
-func NewInMemoryStore(defaultTTL time.Duration) service.LimiterStore {
+func NewInMemoryStore() service.LimiterStore {
 	return &InMemoryStore{
-		counters:   make(map[string]int),
-		blocked:    make(map[string]time.Time),
-		defaultTTL: defaultTTL,
+		counters:    make(map[string]int),
+		expirations: make(map[string]time.Time),
+		blocked:     make(map[string]time.Time),
 	}
 }
 
 // AddRequest registra uma requisição e retorna se é permitida + quantas restam
-func (s *InMemoryStore) AddRequest(key string, timestamp int64) (bool, int, error) {
+func (s *InMemoryStore) AddRequest(key string, timestamp int64, maxRequests int, timeWindowSec int, blockedDuration int) (bool, int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if blockedUntil, ok := s.blocked[key]; ok && time.Now().Before(blockedUntil) {
-		remaining := int(blockedUntil.Sub(time.Now()).Seconds())
+	now := time.Now()
+
+	// 1. Verifica bloqueio ativo
+	if blockedUntil, ok := s.blocked[key]; ok && now.Before(blockedUntil) {
+		remaining := int(blockedUntil.Sub(now).Seconds())
 		return false, remaining, nil
 	}
 
+	// 2. Limpa contador se a janela expirou
+	if exp, ok := s.expirations[key]; !ok || now.After(exp) {
+		s.counters[key] = 0
+		s.expirations[key] = now.Add(time.Duration(timeWindowSec) * time.Second)
+	}
+
+	// 3. Incrementa contador
 	s.counters[key]++
-	remaining := int(s.defaultTTL.Seconds()) - s.counters[key]
-	allowed := remaining >= 0
 
-	// Configura reset automático
-	go func() {
-		time.Sleep(s.defaultTTL)
-		s.ResetKey(key)
-	}()
+	// 4. Verifica se ultrapassou o limite
+	if s.counters[key] > maxRequests {
+		s.blocked[key] = now.Add(time.Duration(blockedDuration) * time.Second)
+		return false, 0, nil
+	}
 
-	return allowed, remaining, nil
+	remaining := maxRequests - s.counters[key]
+	return true, remaining, nil
 }
 
 // GetConfigByToken retorna nil (não gerenciado por InMemory)
@@ -65,7 +74,6 @@ func (s *InMemoryStore) Block(key string, durationSec int) error {
 func (s *InMemoryStore) IsBlocked(key string) (bool, int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
 	if blockedUntil, ok := s.blocked[key]; ok && time.Now().Before(blockedUntil) {
 		return true, int(blockedUntil.Sub(time.Now()).Seconds()), nil
 	}
@@ -77,6 +85,7 @@ func (s *InMemoryStore) ResetKey(key string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.counters, key)
+	delete(s.expirations, key)
 	delete(s.blocked, key)
 	return nil
 }
