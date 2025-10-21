@@ -8,6 +8,7 @@ type TokenConfig struct {
 	TimeWindowSeconds      int
 	MaxRequests            int
 	BlockedDurationSeconds int
+	CreatedAt              time.Time
 }
 
 // NewTokenConfig cria uma nova instância de TokenConfig

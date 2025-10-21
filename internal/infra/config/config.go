@@ -27,16 +27,16 @@ func LoadConfig() (*Config, error) {
 	}
 
 	// Defaults
-	viper.SetDefault("APP_PORT", "8080")
+	viper.SetDefault("APP_PORT", "8081")
 	viper.SetDefault("REDIS_HOST", "localhost")
 	viper.SetDefault("REDIS_PORT", "6379")
 	viper.SetDefault("REDIS_DB", 0)
 	viper.SetDefault("REDIS_PASSWORD", "")
-	viper.SetDefault("RATE_BY_IP_TIME_WINDOW", 60)
-	viper.SetDefault("RATE_BY_IP_MAX_REQUESTS", 10)
-	viper.SetDefault("RATE_BY_IP_BLOCKED_DURATION", 300)
+	viper.SetDefault("RATE_BY_IP_TIME_WINDOW", 99)
+	viper.SetDefault("RATE_BY_IP_MAX_REQUESTS", 9)
+	viper.SetDefault("RATE_BY_IP_BLOCKED_DURATION", 299)
 	viper.SetDefault("ENABLE_TOKEN_LIMITING", true)
-	viper.SetDefault("DEFAULT_TOKEN_TTL", 3600)
+	viper.SetDefault("DEFAULT_TOKEN_TTL", 3699)
 
 	viper.AutomaticEnv()
 
@@ -44,6 +44,7 @@ func LoadConfig() (*Config, error) {
 	if err := viper.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
+	fmt.Println("Loaded config:", cfg)
 
 	return &cfg, nil
 }

@@ -6,11 +6,20 @@ Accept: application/json
 GET http://localhost:8080/ping
 Accept: application/json
 
-### Rate Limited Endpoint
+### Rate Limited Endpoint without Token
 GET http://localhost:8080/protected
 Accept: application/json
 
+### Rate Limited Endpoint with Token
+GET http://localhost:8080/protected HTTP/1.1
+API_KEY: ec630fcfc104de84a7497e0fb4554dc4
+
 ### Create API Key
 POST http://localhost:8080/api-key
-Accept: application/json
 Content-Type: application/json
+
+{
+  "time_window": 3600,
+  "max_requests": 10,
+  "blocked_duration": 20
+}

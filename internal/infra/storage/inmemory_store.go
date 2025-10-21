@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -25,8 +26,15 @@ func NewInMemoryStore() service.LimiterStore {
 	}
 }
 
+// SaveTokenConfig salva a configuração do token no Redis com TTL
+func (s *InMemoryStore) SaveTokenConfig(cfg *entity.TokenConfig) error {
+	// TODO: Implementar
+	return nil
+}
+
 // AddRequest registra uma requisição e retorna se é permitida + quantas restam
 func (s *InMemoryStore) AddRequest(key string, timestamp int64, maxRequests int, timeWindowSec int, blockedDuration int) (bool, int, error) {
+	fmt.Println("AddRequest called in InMemoryStore")
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

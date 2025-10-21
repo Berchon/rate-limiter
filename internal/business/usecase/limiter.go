@@ -2,6 +2,9 @@
 package usecase
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
 	"time"
 
 	"github.com/Berchon/rate-limiter/internal/business/entity"
@@ -12,9 +15,9 @@ import (
 type RateLimiterUseCase interface {
 	AllowRequest(ip string, token string, now time.Time) (allowed bool, reason string, remaining int, retryAfterSec int, err error)
 	IsBlocked(key entity.LimiterKey) (blocked bool, remainingSec int, err error)
+	CreateToken(timeWindow, maxRequests, blockedDuration int) (*entity.TokenConfig, error)
 }
 
-// rateLimiterUseCase é a implementação do RateLimiterUseCase
 type rateLimiterUseCase struct {
 	store       service.LimiterStore
 	ipMaxReq    int
@@ -22,7 +25,6 @@ type rateLimiterUseCase struct {
 	ipBlockSec  int
 }
 
-// NewRateLimiterUseCase cria uma nova instância do RateLimiterUseCase
 func NewRateLimiterUseCase(store service.LimiterStore, ipMaxReq, ipWindowSec, ipBlockSec int) RateLimiterUseCase {
 	return &rateLimiterUseCase{
 		store:       store,
@@ -32,7 +34,31 @@ func NewRateLimiterUseCase(store service.LimiterStore, ipMaxReq, ipWindowSec, ip
 	}
 }
 
-// AllowRequest avalia se a requisição deve ser permitida
+// Cria token e salva no Redis
+func (uc *rateLimiterUseCase) CreateToken(timeWindow, maxRequests, blockedDuration int) (*entity.TokenConfig, error) {
+	tokenBytes := make([]byte, 16)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return nil, err
+	}
+	token := hex.EncodeToString(tokenBytes)
+
+	key := *entity.NewLimiterKey("token", token)
+	cfg := &entity.TokenConfig{
+		Token:                  key.String(),
+		TimeWindowSeconds:      timeWindow,
+		MaxRequests:            maxRequests,
+		BlockedDurationSeconds: blockedDuration,
+		CreatedAt:              time.Now(),
+	}
+
+	if err := uc.store.SaveTokenConfig(cfg); err != nil {
+		return nil, err
+	}
+
+	cfg.Token = token
+	return cfg, nil
+}
+
 func (uc *rateLimiterUseCase) AllowRequest(ip string, token string, now time.Time) (bool, string, int, int, error) {
 	var key entity.LimiterKey
 	var cfg *entity.TokenConfig
@@ -40,18 +66,17 @@ func (uc *rateLimiterUseCase) AllowRequest(ip string, token string, now time.Tim
 
 	timestamp := now.UnixMilli()
 
-	// 1. Prioridade token
 	if token != "" {
-		cfg, err = uc.store.GetConfigByToken(token)
+		cfg, err = uc.store.GetConfigByToken(entity.NewLimiterKey("token", token).String())
 		if err != nil {
 			return false, "error fetching token config", 0, 0, err
 		}
 		if cfg != nil {
 			key = *entity.NewLimiterKey("token", token)
+			fmt.Printf("[RateLimiter] Token found: %s | MaxReq: %d | Window: %ds\n", token, cfg.MaxRequests, cfg.TimeWindowSeconds)
 		}
 	}
 
-	// 2. Caso não tenha token ou config não encontrada → usa IP
 	if key.Value == "" {
 		key = *entity.NewLimiterKey("ip", ip)
 		cfg = &entity.TokenConfig{
@@ -59,44 +84,35 @@ func (uc *rateLimiterUseCase) AllowRequest(ip string, token string, now time.Tim
 			TimeWindowSeconds:      uc.ipWindowSec,
 			BlockedDurationSeconds: uc.ipBlockSec,
 		}
+		fmt.Printf("[RateLimiter] Using IP %s | MaxReq: %d | Window: %ds\n", ip, cfg.MaxRequests, cfg.TimeWindowSeconds)
 	}
 
-	// 3. Verifica bloqueio
 	blocked, remainingSec, err := uc.store.IsBlocked(key.String())
 	if err != nil {
 		return false, "error checking blocked", 0, 0, err
 	}
 	if blocked {
+		fmt.Printf("[RateLimiter] Blocked: %s | Retry after: %ds\n", key.String(), remainingSec)
 		return false, "blocked", 0, remainingSec, nil
 	}
 
-	// 4. Adiciona requisição no store com maxRequests e blockedDuration
-	allowed, remaining, err := uc.store.AddRequest(
-		key.String(),
-		timestamp,
-		cfg.MaxRequests,
-		cfg.TimeWindowSeconds, // ← esse é o novo parâmetro
-		cfg.BlockedDurationSeconds,
-	)
-
+	allowed, remaining, err := uc.store.AddRequest(key.String(), timestamp, cfg.MaxRequests, cfg.TimeWindowSeconds, cfg.BlockedDurationSeconds)
 	if err != nil {
 		return false, "error adding request", 0, 0, err
 	}
 
-	// 5. Se excedeu → aplica bloqueio (redundante, mas seguro)
-	if !allowed {
-		if cfg.BlockedDurationSeconds > 0 {
-			if err := uc.store.Block(key.String(), cfg.BlockedDurationSeconds); err != nil {
-				return false, "error applying block", 0, 0, err
-			}
+	if !allowed && cfg.BlockedDurationSeconds > 0 {
+		if err := uc.store.Block(key.String(), cfg.BlockedDurationSeconds); err != nil {
+			return false, "error applying block", 0, 0, err
 		}
+		fmt.Printf("[RateLimiter] Limit exceeded: %s | Blocking for %ds\n", key.String(), cfg.BlockedDurationSeconds)
 		return false, "rate limit exceeded", 0, cfg.BlockedDurationSeconds, nil
 	}
 
+	fmt.Printf("[RateLimiter] Allowed: %s | Remaining: %d\n", key.String(), remaining)
 	return true, "", remaining, 0, nil
 }
 
-// IsBlocked retorna se a chave está bloqueada e o tempo restante
 func (uc *rateLimiterUseCase) IsBlocked(key entity.LimiterKey) (bool, int, error) {
 	return uc.store.IsBlocked(key.String())
 }

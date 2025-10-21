@@ -3,32 +3,32 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/Berchon/rate-limiter/internal/business/dto"
 	"github.com/Berchon/rate-limiter/internal/business/usecase"
 )
 
-// APIKeyHandler interface para facilitar testes e mocks
+// CreateAPIKeyHandler interface para facilitar testes e mocks
 type CreateAPIKeyHandler interface {
 	HttpHandler
 }
 
 // apiKeyHandler struct concreta
 type createApiKeyHandler struct {
-	usecase  *usecase.RateLimiterUseCase
+	usecase  usecase.RateLimiterUseCase
 	response *ResponseHandler
 }
 
-// NewAPIKeyHandler construtor
-func NewCreateAPIKeyHandler(usecase *usecase.RateLimiterUseCase) CreateAPIKeyHandler {
-	response := NewResponseHandler()
+// NewCreateAPIKeyHandler construtor
+func NewCreateAPIKeyHandler(uc usecase.RateLimiterUseCase) CreateAPIKeyHandler {
 	return &createApiKeyHandler{
-		usecase:  usecase,
-		response: response,
+		usecase:  uc,
+		response: NewResponseHandler(),
 	}
 }
 
-// Create é o handler do POST /api-key
+// Handle trata o POST /api-key
 func (h *createApiKeyHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	var req dto.CreateAPIKeyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -36,22 +36,28 @@ func (h *createApiKeyHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validar campos mínimos
+	// validação simples
 	if req.TimeWindow <= 0 || req.MaxRequests <= 0 || req.BlockedDuration < 0 {
 		h.response.RequestResponse(w, r, "invalid parameters", http.StatusBadRequest)
 		return
 	}
 
-	// Chama o UseCase para criar o token
-	// token, err := h.useCase.CreateToken(req.TimeWindow, req.MaxRequests, req.BlockedDuration, time.Now())
-	// if err != nil {
-	// 	http.Error(w, "failed to create token", http.StatusInternalServerError)
-	// 	h.response.RequestResponse(w, r, err, err.StatusInternalServerError)
-	// }
+	// cria o token via usecase
+	cfg, err := h.usecase.CreateToken(req.TimeWindow, req.MaxRequests, req.BlockedDuration)
+	if err != nil {
+		h.response.RequestResponse(w, r, "failed to create token", http.StatusInternalServerError)
+		return
+	}
 
-	// resp := dto.CreateAPIKeyResponse{
-	// 	Token: token,
-	// }
+	// prepara resposta
+	resp := dto.CreateAPIKeyResponse{
+		Token:           cfg.Token,
+		TimeWindow:      cfg.TimeWindowSeconds,
+		MaxRequests:     cfg.MaxRequests,
+		BlockedDuration: cfg.BlockedDurationSeconds,
+		CreatedAt:       cfg.CreatedAt.Format(time.RFC3339),
+		ExpiresAt:       cfg.CreatedAt.Add(time.Duration(cfg.TimeWindowSeconds) * time.Second).Format(time.RFC3339),
+	}
 
-	h.response.RequestResponse(w, r, nil, http.StatusCreated)
+	h.response.RequestResponse(w, r, resp, http.StatusCreated)
 }

@@ -63,6 +63,36 @@ func (_m *MockRateLimiterUseCase) AllowRequest(ip string, token string, now time
 	return r0, r1, r2, r3, r4
 }
 
+// CreateToken provides a mock function with given fields: timeWindow, maxRequests, blockedDuration
+func (_m *MockRateLimiterUseCase) CreateToken(timeWindow int, maxRequests int, blockedDuration int) (*entity.TokenConfig, error) {
+	ret := _m.Called(timeWindow, maxRequests, blockedDuration)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateToken")
+	}
+
+	var r0 *entity.TokenConfig
+	var r1 error
+	if rf, ok := ret.Get(0).(func(int, int, int) (*entity.TokenConfig, error)); ok {
+		return rf(timeWindow, maxRequests, blockedDuration)
+	}
+	if rf, ok := ret.Get(0).(func(int, int, int) *entity.TokenConfig); ok {
+		r0 = rf(timeWindow, maxRequests, blockedDuration)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.TokenConfig)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(int, int, int) error); ok {
+		r1 = rf(timeWindow, maxRequests, blockedDuration)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // IsBlocked provides a mock function with given fields: key
 func (_m *MockRateLimiterUseCase) IsBlocked(key entity.LimiterKey) (bool, int, error) {
 	ret := _m.Called(key)

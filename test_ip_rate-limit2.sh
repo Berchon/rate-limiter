@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# test_rate_limiter_flushdb.sh
-# Teste completo do rate limiter por IP com limpeza total via FLUSHDB
+# test_rate_limiter_intercalated.sh
+# Teste do rate limiter por IP com requisições intercaladas (round-robin)
 
 set -euo pipefail
 
 SERVER_URL="${SERVER_URL:-http://localhost:8080/protected}"
 REDIS_CLI="${REDIS_CLI:-docker exec -i rate-limiter-redis redis-cli}"
 IP_LIST=("1.1.1.1" "2.2.2.2" "3.3.3.3")
-REQUESTS_PER_IP="${REQUESTS_PER_IP:-30}"
-SLEEP_BETWEEN_REQUESTS="${SLEEP_BETWEEN_REQUESTS:-0.5}"
+REQUESTS_PER_IP="${REQUESTS_PER_IP:-50}"
+SLEEP_BETWEEN_REQUESTS="${SLEEP_BETWEEN_REQUESTS:-0.05}"
 
-echo "🚀 Test Rate Limiter (FLUSHDB version)"
+echo "🚀 Test Rate Limiter (intercalado)"
 echo "Server: $SERVER_URL"
 echo "IPs: ${IP_LIST[*]}"
 echo "Requests per IP: $REQUESTS_PER_IP"
@@ -22,17 +22,18 @@ $REDIS_CLI FLUSHDB
 echo "Banco limpo com sucesso!"
 echo "----------------------------------------"
 
-for ip in "${IP_LIST[@]}"; do
-  echo -e "\n🌐 Testando IP: $ip"
-  for ((i=1; i<=REQUESTS_PER_IP; i++)); do
+# Para REQUESTS_PER_IP rounds, em cada round faz uma requisição para cada IP (round-robin)
+for ((round=1; round<=REQUESTS_PER_IP; round++)); do
+  echo -e "\n🔁 Round #$round"
+  for ip in "${IP_LIST[@]}"; do
     http_code=$(curl -s -o /dev/null -w "%{http_code}" -H "X-Forwarded-For: $ip" "$SERVER_URL" || echo "000")
 
     if [[ "$http_code" == "200" ]]; then
-      echo -n "✅ [$ip] req #$i -> 200 OK  "
+      echo -n "✅ [$ip] round #$round -> 200 OK  "
     elif [[ "$http_code" == "429" ]]; then
-      echo -n "⚠️  [$ip] req #$i -> 429 TOO MANY REQUESTS  "
+      echo -n "⚠️  [$ip] round #$round -> 429 TOO MANY REQUESTS  "
     else
-      echo -n "❌ [$ip] req #$i -> HTTP $http_code  "
+      echo -n "❌ [$ip] round #$round -> HTTP $http_code  "
     fi
 
     cnt=$($REDIS_CLI GET "ip:${ip}" 2>/dev/null || true)

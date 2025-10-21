@@ -1,6 +1,7 @@
 package di
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -27,6 +28,8 @@ func BuildDependencies(cfg *config.Config) *Dependencies {
 	// store := storage.NewInMemoryStore(defaultTTL)
 
 	// Cria cliente Redis
+	addr := fmt.Sprintf("%s:%s", cfg.RedisHost, cfg.RedisPort)
+	fmt.Println("Connecting to Redis at", addr)
 	redisClient := redis.NewClient(&redis.Options{
 		Addr:     fmt.Sprintf("%s:%s", cfg.RedisHost, cfg.RedisPort),
 		Password: cfg.RedisPassword,
@@ -35,6 +38,8 @@ func BuildDependencies(cfg *config.Config) *Dependencies {
 
 	// Cria store Redis
 	store := redisStore.NewRedisStore(redisClient, defaultTTL)
+	pong, err := redisClient.Ping(context.Background()).Result()
+	fmt.Println("Redis test ping:", pong, "err:", err)
 
 	// 	// --- UseCases ---
 	rateLimiterUC := usecase.NewRateLimiterUseCase(
@@ -45,7 +50,7 @@ func BuildDependencies(cfg *config.Config) *Dependencies {
 	)
 
 	// --- Handlers ---
-	createApiKeyHandler := handler.NewCreateAPIKeyHandler(&rateLimiterUC)
+	createApiKeyHandler := handler.NewCreateAPIKeyHandler(rateLimiterUC)
 	getHealthHandler := handler.NewGetHealthHandler()
 	getPingHandler := handler.NewGetPingHandler()
 

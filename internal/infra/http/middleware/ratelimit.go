@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"fmt"
 	"net"
 	stdhttp "net/http"
 	"strings"
@@ -33,6 +34,7 @@ func (m *rateLimitMiddleware) Handle(next stdhttp.Handler) stdhttp.Handler {
 	return stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		ip := extractClientIP(r)
 		token := r.Header.Get("API_KEY")
+		fmt.Println("RateLimitMiddleware: IP =", ip, "Token =", token)
 
 		allowed, _, _, _, err := m.limiter.AllowRequest(ip, token, time.Now())
 		if err != nil || !allowed {
