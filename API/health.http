@@ -12,14 +12,18 @@ Accept: application/json
 
 ### Rate Limited Endpoint with Token
 GET http://localhost:8080/protected HTTP/1.1
-API_KEY: ec630fcfc104de84a7497e0fb4554dc4
+API_KEY: 5e85a15417f8f2cc07a299242d79aac0
 
 ### Create API Key
 POST http://localhost:8080/api-key
 Content-Type: application/json
 
 {
-  "time_window": 3600,
-  "max_requests": 10,
-  "blocked_duration": 20
+  "time_window": 5,
+  "max_requests": 2,
+  "blocked_duration": 5,
+  "token_ttl": 3600
+}
+
+
 }

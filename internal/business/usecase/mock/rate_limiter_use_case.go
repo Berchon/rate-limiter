@@ -63,9 +63,9 @@ func (_m *MockRateLimiterUseCase) AllowRequest(ip string, token string, now time
 	return r0, r1, r2, r3, r4
 }
 
-// CreateToken provides a mock function with given fields: timeWindow, maxRequests, blockedDuration
-func (_m *MockRateLimiterUseCase) CreateToken(timeWindow int, maxRequests int, blockedDuration int) (*entity.TokenConfig, error) {
-	ret := _m.Called(timeWindow, maxRequests, blockedDuration)
+// CreateToken provides a mock function with given fields: timeWindow, maxRequests, blockedDuration, tokenTTL
+func (_m *MockRateLimiterUseCase) CreateToken(timeWindow int, maxRequests int, blockedDuration int, tokenTTL int) (*entity.TokenConfig, error) {
+	ret := _m.Called(timeWindow, maxRequests, blockedDuration, tokenTTL)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CreateToken")
@@ -73,19 +73,19 @@ func (_m *MockRateLimiterUseCase) CreateToken(timeWindow int, maxRequests int, b
 
 	var r0 *entity.TokenConfig
 	var r1 error
-	if rf, ok := ret.Get(0).(func(int, int, int) (*entity.TokenConfig, error)); ok {
-		return rf(timeWindow, maxRequests, blockedDuration)
+	if rf, ok := ret.Get(0).(func(int, int, int, int) (*entity.TokenConfig, error)); ok {
+		return rf(timeWindow, maxRequests, blockedDuration, tokenTTL)
 	}
-	if rf, ok := ret.Get(0).(func(int, int, int) *entity.TokenConfig); ok {
-		r0 = rf(timeWindow, maxRequests, blockedDuration)
+	if rf, ok := ret.Get(0).(func(int, int, int, int) *entity.TokenConfig); ok {
+		r0 = rf(timeWindow, maxRequests, blockedDuration, tokenTTL)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.TokenConfig)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(int, int, int) error); ok {
-		r1 = rf(timeWindow, maxRequests, blockedDuration)
+	if rf, ok := ret.Get(1).(func(int, int, int, int) error); ok {
+		r1 = rf(timeWindow, maxRequests, blockedDuration, tokenTTL)
 	} else {
 		r1 = ret.Error(1)
 	}

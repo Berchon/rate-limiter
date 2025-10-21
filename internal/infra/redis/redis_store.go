@@ -12,47 +12,37 @@ import (
 )
 
 type RedisStore struct {
-	client     *redis.Client
-	defaultTTL time.Duration
+	client *redis.Client
 }
 
-func NewRedisStore(client *redis.Client, defaultTTL time.Duration) service.LimiterStore {
+func NewRedisStore(client *redis.Client) service.LimiterStore {
 	return &RedisStore{
-		client:     client,
-		defaultTTL: defaultTTL,
+		client: client,
 	}
 }
 
-// Salva a configuração do token no Redis como JSON
+// ---------------- Configuração do token ----------------
 func (r *RedisStore) SaveTokenConfig(cfg *entity.TokenConfig) error {
 	ctx := context.Background()
-	key := cfg.Token
+	// key := *entity.NewLimiterKey("token", cfg.Token) // cfg.Token já está no formato `token:<TOKEN>``
 
 	data, err := json.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to marshal token config: %w", err)
 	}
 
-	ttl := time.Duration(cfg.TimeWindowSeconds) * time.Second
-	if err := r.client.Set(ctx, key, data, ttl).Err(); err != nil {
+	ttl := time.Duration(cfg.TokenTTLSeconds) * time.Second
+	if err := r.client.Set(ctx, cfg.Token, data, ttl).Err(); err != nil {
 		return err
 	}
 	return nil
 }
 
-// Recupera configuração do token
-func (r *RedisStore) GetConfigByToken(key string) (*entity.TokenConfig, error) {
+func (r *RedisStore) GetConfigByToken(token string) (*entity.TokenConfig, error) {
 	ctx := context.Background()
+	key := *entity.NewLimiterKey("token", token)
 
-	exists, err := r.client.Exists(ctx, key).Result()
-	if err != nil {
-		return nil, fmt.Errorf("failed to check key existence: %w", err)
-	}
-	if exists == 0 {
-		return nil, nil
-	}
-
-	data, err := r.client.Get(ctx, key).Result()
+	data, err := r.client.Get(ctx, key.String()).Result()
 	if err == redis.Nil {
 		return nil, nil
 	}
@@ -67,8 +57,8 @@ func (r *RedisStore) GetConfigByToken(key string) (*entity.TokenConfig, error) {
 	return &cfg, nil
 }
 
-// Registra uma requisição, retorna se é permitida + restantes
-func (r *RedisStore) AddRequest(key string, timestamp int64, maxRequests int, timeWindowSec int, blockedDuration int) (bool, int, error) {
+// ---------------- Contador de requisições ----------------
+func (r *RedisStore) AddRequest(key entity.LimiterKey, timestamp int64, maxRequests int, timeWindowSec int, blockedDuration int) (bool, int, error) {
 	ctx := context.Background()
 
 	blocked, remaining, err := r.IsBlocked(key)
@@ -79,8 +69,7 @@ func (r *RedisStore) AddRequest(key string, timestamp int64, maxRequests int, ti
 		return false, remaining, nil
 	}
 
-	// Usar chave de contagem separada ":count"
-	countKey := key + ":count"
+	countKey := key.String() + ":count"
 	count, err := r.client.Incr(ctx, countKey).Result()
 	if err != nil {
 		return false, 0, err
@@ -97,27 +86,24 @@ func (r *RedisStore) AddRequest(key string, timestamp int64, maxRequests int, ti
 	}
 
 	if int(count) > maxRequests {
-		if blockedDuration > 0 {
-			if err := r.Block(key, blockedDuration); err != nil {
-				return false, 0, err
-			}
-		}
 		return false, 0, nil
 	}
 
 	return true, maxRequests - int(count), nil
 }
 
-// Bloqueia chave explicitamente por durationSec segundos
-func (r *RedisStore) Block(key string, durationSec int) error {
+// ---------------- Bloqueio ----------------
+func (r *RedisStore) Block(key entity.LimiterKey, durationSec int) error {
 	ctx := context.Background()
-	return r.client.Set(ctx, key+":blocked", 1, time.Duration(durationSec)*time.Second).Err()
+	blockedKey := key.String() + ":blocked"
+	return r.client.Set(ctx, blockedKey, 1, time.Duration(durationSec)*time.Second).Err()
 }
 
-// Verifica se chave está bloqueada
-func (r *RedisStore) IsBlocked(key string) (bool, int, error) {
+func (r *RedisStore) IsBlocked(key entity.LimiterKey) (bool, int, error) {
 	ctx := context.Background()
-	ttl, err := r.client.TTL(ctx, key+":blocked").Result()
+	blockedKey := key.String() + ":blocked"
+
+	ttl, err := r.client.TTL(ctx, blockedKey).Result()
 	if err != nil {
 		return false, 0, err
 	}
@@ -127,14 +113,17 @@ func (r *RedisStore) IsBlocked(key string) (bool, int, error) {
 	return false, 0, nil
 }
 
-// Reseta contador e bloqueio (útil para testes)
-func (r *RedisStore) ResetKey(key string) error {
+// ---------------- Reset (para testes) ----------------
+func (r *RedisStore) ResetKey(key entity.LimiterKey) error {
 	ctx := context.Background()
-	if err := r.client.Del(ctx, key+":count").Err(); err != nil {
+	if err := r.client.Del(ctx, key.String()+":count").Err(); err != nil {
 		return fmt.Errorf("failed to reset count key: %w", err)
 	}
-	if err := r.client.Del(ctx, key+":blocked").Err(); err != nil {
+	if err := r.client.Del(ctx, key.String()+":blocked").Err(); err != nil {
 		return fmt.Errorf("failed to reset blocked key: %w", err)
+	}
+	if err := r.client.Del(ctx, key.String()).Err(); err != nil {
+		return fmt.Errorf("failed to reset config key: %w", err)
 	}
 	return nil
 }

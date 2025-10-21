@@ -37,13 +37,13 @@ func (h *createApiKeyHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// validação simples
-	if req.TimeWindow <= 0 || req.MaxRequests <= 0 || req.BlockedDuration < 0 {
+	if req.TimeWindow <= 0 || req.MaxRequests <= 0 || req.BlockedDuration <= 0 || req.TokenTTL <= 0 {
 		h.response.RequestResponse(w, r, "invalid parameters", http.StatusBadRequest)
 		return
 	}
 
 	// cria o token via usecase
-	cfg, err := h.usecase.CreateToken(req.TimeWindow, req.MaxRequests, req.BlockedDuration)
+	cfg, err := h.usecase.CreateToken(req.TimeWindow, req.MaxRequests, req.BlockedDuration, req.TokenTTL)
 	if err != nil {
 		h.response.RequestResponse(w, r, "failed to create token", http.StatusInternalServerError)
 		return
@@ -56,7 +56,7 @@ func (h *createApiKeyHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		MaxRequests:     cfg.MaxRequests,
 		BlockedDuration: cfg.BlockedDurationSeconds,
 		CreatedAt:       cfg.CreatedAt.Format(time.RFC3339),
-		ExpiresAt:       cfg.CreatedAt.Add(time.Duration(cfg.TimeWindowSeconds) * time.Second).Format(time.RFC3339),
+		ExpiresAt:       cfg.CreatedAt.Add(time.Duration(cfg.TokenTTLSeconds) * time.Second).Format(time.RFC3339),
 	}
 
 	h.response.RequestResponse(w, r, resp, http.StatusCreated)

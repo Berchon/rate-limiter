@@ -3,7 +3,6 @@ package di
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/Berchon/rate-limiter/internal/business/usecase"
 	"github.com/Berchon/rate-limiter/internal/infra/config"
@@ -22,7 +21,7 @@ type Dependencies struct {
 
 func BuildDependencies(cfg *config.Config) *Dependencies {
 	// --- Storage / LimiterStore ---
-	defaultTTL := time.Duration(cfg.DefaultTokenTTL) * time.Second
+	// defaultTTL := time.Duration(cfg.DefaultTokenTTL) * time.Second
 
 	// Alternativa InMemory
 	// store := storage.NewInMemoryStore(defaultTTL)
@@ -37,7 +36,7 @@ func BuildDependencies(cfg *config.Config) *Dependencies {
 	})
 
 	// Cria store Redis
-	store := redisStore.NewRedisStore(redisClient, defaultTTL)
+	store := redisStore.NewRedisStore(redisClient)
 	pong, err := redisClient.Ping(context.Background()).Result()
 	fmt.Println("Redis test ping:", pong, "err:", err)
 
