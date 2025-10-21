@@ -1,99 +1,119 @@
 package storage
 
-// import (
-// 	"fmt"
-// 	"sync"
-// 	"time"
+import (
+	"encoding/json"
+	"fmt"
+	"sync"
+	"time"
 
-// 	"github.com/Berchon/rate-limiter/internal/business/entity"
-// 	"github.com/Berchon/rate-limiter/internal/business/service"
-// )
+	"github.com/Berchon/rate-limiter/internal/business/entity"
+	"github.com/Berchon/rate-limiter/internal/business/service"
+)
 
-// // InMemoryStore mantém contadores e bloqueios na memória
-// type InMemoryStore struct {
-// 	mu          sync.Mutex
-// 	counters    map[string]int
-// 	expirations map[string]time.Time
-// 	blocked     map[string]time.Time
-// }
+type InMemoryStore struct {
+	mu           sync.Mutex
+	counters     map[string]int
+	expirations  map[string]time.Time
+	blocked      map[string]time.Time
+	tokenConfigs map[string][]byte
+}
 
-// // NewInMemoryStore cria uma nova instância de InMemoryStore
-// func NewInMemoryStore() service.LimiterStore {
-// 	return &InMemoryStore{
-// 		counters:    make(map[string]int),
-// 		expirations: make(map[string]time.Time),
-// 		blocked:     make(map[string]time.Time),
-// 	}
-// }
+func NewInMemoryStore() service.LimiterStore {
+	return &InMemoryStore{
+		counters:     make(map[string]int),
+		expirations:  make(map[string]time.Time),
+		blocked:      make(map[string]time.Time),
+		tokenConfigs: make(map[string][]byte),
+	}
+}
 
-// // SaveTokenConfig salva a configuração do token no Redis com TTL
-// func (s *InMemoryStore) SaveTokenConfig(cfg *entity.TokenConfig) error {
-// 	// TODO: Implementar
-// 	return nil
-// }
+func (s *InMemoryStore) SaveTokenConfig(cfg *entity.TokenConfig) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-// // AddRequest registra uma requisição e retorna se é permitida + quantas restam
-// func (s *InMemoryStore) AddRequest(key string, timestamp int64, maxRequests int, timeWindowSec int, blockedDuration int) (bool, int, error) {
-// 	fmt.Println("AddRequest called in InMemoryStore")
-// 	s.mu.Lock()
-// 	defer s.mu.Unlock()
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal token config: %w", err)
+	}
 
-// 	now := time.Now()
+	s.tokenConfigs[cfg.Token] = data
 
-// 	// 1. Verifica bloqueio ativo
-// 	if blockedUntil, ok := s.blocked[key]; ok && now.Before(blockedUntil) {
-// 		remaining := int(blockedUntil.Sub(now).Seconds())
-// 		return false, remaining, nil
-// 	}
+	go func(token string, ttl int) {
+		time.Sleep(time.Duration(ttl) * time.Second)
+		s.mu.Lock()
+		delete(s.tokenConfigs, token)
+		s.mu.Unlock()
+	}(cfg.Token, cfg.TokenTTLSeconds)
 
-// 	// 2. Limpa contador se a janela expirou
-// 	if exp, ok := s.expirations[key]; !ok || now.After(exp) {
-// 		s.counters[key] = 0
-// 		s.expirations[key] = now.Add(time.Duration(timeWindowSec) * time.Second)
-// 	}
+	return nil
+}
 
-// 	// 3. Incrementa contador
-// 	s.counters[key]++
+func (s *InMemoryStore) GetConfigByToken(token string) (*entity.TokenConfig, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-// 	// 4. Verifica se ultrapassou o limite
-// 	if s.counters[key] > maxRequests {
-// 		s.blocked[key] = now.Add(time.Duration(blockedDuration) * time.Second)
-// 		return false, 0, nil
-// 	}
+	data, ok := s.tokenConfigs[token]
+	if !ok {
+		return nil, nil
+	}
 
-// 	remaining := maxRequests - s.counters[key]
-// 	return true, remaining, nil
-// }
+	var cfg entity.TokenConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal token config: %w", err)
+	}
 
-// // GetConfigByToken retorna nil (não gerenciado por InMemory)
-// func (s *InMemoryStore) GetConfigByToken(token string) (*entity.TokenConfig, error) {
-// 	return nil, nil
-// }
+	return &cfg, nil
+}
 
-// // Block bloqueia explicitamente a chave
-// func (s *InMemoryStore) Block(key string, durationSec int) error {
-// 	s.mu.Lock()
-// 	defer s.mu.Unlock()
-// 	s.blocked[key] = time.Now().Add(time.Duration(durationSec) * time.Second)
-// 	return nil
-// }
+func (s *InMemoryStore) AddRequest(key entity.LimiterKey, timestamp int64, maxRequests int, timeWindowSec int, blockedDuration int) (bool, int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-// // IsBlocked verifica se a chave está bloqueada
-// func (s *InMemoryStore) IsBlocked(key string) (bool, int, error) {
-// 	s.mu.Lock()
-// 	defer s.mu.Unlock()
-// 	if blockedUntil, ok := s.blocked[key]; ok && time.Now().Before(blockedUntil) {
-// 		return true, int(blockedUntil.Sub(time.Now()).Seconds()), nil
-// 	}
-// 	return false, 0, nil
-// }
+	now := time.Now()
 
-// // ResetKey reseta contador e bloqueio da chave
-// func (s *InMemoryStore) ResetKey(key string) error {
-// 	s.mu.Lock()
-// 	defer s.mu.Unlock()
-// 	delete(s.counters, key)
-// 	delete(s.expirations, key)
-// 	delete(s.blocked, key)
-// 	return nil
-// }
+	if blockedUntil, ok := s.blocked[key.String()]; ok && now.Before(blockedUntil) {
+		remaining := int(blockedUntil.Sub(now).Seconds())
+		return false, remaining, nil
+	}
+
+	if exp, ok := s.expirations[key.String()]; !ok || now.After(exp) {
+		s.counters[key.String()] = 0
+		s.expirations[key.String()] = now.Add(time.Duration(timeWindowSec) * time.Second)
+	}
+
+	s.counters[key.String()]++
+
+	if s.counters[key.String()] > maxRequests {
+		s.blocked[key.String()] = now.Add(time.Duration(blockedDuration) * time.Second)
+		return false, 0, nil
+	}
+
+	remaining := maxRequests - s.counters[key.String()]
+	return true, remaining, nil
+}
+
+func (s *InMemoryStore) Block(key entity.LimiterKey, durationSec int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.blocked[key.String()] = time.Now().Add(time.Duration(durationSec) * time.Second)
+	return nil
+}
+
+func (s *InMemoryStore) IsBlocked(key entity.LimiterKey) (bool, int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if blockedUntil, ok := s.blocked[key.String()]; ok && time.Now().Before(blockedUntil) {
+		return true, int(blockedUntil.Sub(time.Now()).Seconds()), nil
+	}
+	return false, 0, nil
+}
+
+func (s *InMemoryStore) ResetKey(key entity.LimiterKey) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.counters, key.String())
+	delete(s.expirations, key.String())
+	delete(s.blocked, key.String())
+	delete(s.tokenConfigs, key.String())
+	return nil
+}

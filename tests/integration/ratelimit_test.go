@@ -26,23 +26,18 @@ func setup(t *testing.T) (*miniredis.Miniredis, http.Handler, http.Handler) {
 
 	t.Helper()
 
-	// 1️⃣ Start miniredis
 	mr, err := miniredis.Run()
 	require.NoError(t, err)
 
-	// 2️⃣ Cria cliente Redis apontando para o miniredis
 	client := redis.NewClient(&redis.Options{
 		Addr: mr.Addr(),
 	})
 
-	// 3️⃣ Carrega configuração
 	cfg, err := config.LoadConfig()
 	require.NoError(t, err)
 
-	// 4️⃣ Cria store usando Redis
 	store := redisStore.NewRedisStore(client)
 
-	// 5️⃣ Cria RateLimiterUseCase
 	rlUseCase := usecase.NewRateLimiterUseCase(
 		store,
 		cfg.RateByIPMaxRequests,
@@ -50,7 +45,6 @@ func setup(t *testing.T) (*miniredis.Miniredis, http.Handler, http.Handler) {
 		cfg.RateByIPBlockedDuration,
 	)
 
-	// 6️⃣ Cria middleware protegido
 	rateLimiter := middleware.NewRateLimitMiddleware(rlUseCase)
 	createApiKeyHandler := handler.NewCreateAPIKeyHandler(rlUseCase)
 	protectedHandler := rateLimiter.Handle(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
