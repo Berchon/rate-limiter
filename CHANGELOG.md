@@ -8,11 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Multi-stage `Dockerfile` (`golang:1.26.4-alpine` builder and non-root `alpine:3.21` runtime with healthcheck).
 - `.dockerignore` to keep Docker build contexts minimal and free of local artifacts.
 - `STORAGE_TYPE` configuration variable (`redis` | `memory`) in `.env.example`.
 - `CHANGELOG.md` following Keep a Changelog and Semantic Versioning conventions.
 
 ### Changed
+- Updated `docker-compose.yml` to orchestrate both `redis` (with healthcheck) and the `app` service.
 - Updated Go version in `go.mod` from `1.24.4` to `1.26.4`.
 - Renamed `.env example` to `.env.example` with English documentation and defaults.
 - Renamed `API/health.http` to `API/requests.http`, fixed JSON payload syntax, and replaced hardcoded token with a placeholder.
