@@ -2,9 +2,41 @@ services:
   redis:
     image: redis:7-alpine
     container_name: rate-limiter-redis
+    restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rate-limiter-app
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "${APP_PORT:-8080}:${APP_PORT:-8080}"
+    environment:
+      APP_PORT: ${APP_PORT:-8080}
+      STORAGE_TYPE: ${STORAGE_TYPE:-redis}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: ${REDIS_DB:-0}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      RATE_BY_IP_TIME_WINDOW: ${RATE_BY_IP_TIME_WINDOW:-5}
+      RATE_BY_IP_MAX_REQUESTS: ${RATE_BY_IP_MAX_REQUESTS:-2}
+      RATE_BY_IP_BLOCKED_DURATION: ${RATE_BY_IP_BLOCKED_DURATION:-60}
+      ENABLE_TOKEN_LIMITING: ${ENABLE_TOKEN_LIMITING:-true}
+      DEFAULT_TOKEN_TTL: ${DEFAULT_TOKEN_TTL:-40}
+
 volumes:
   redis-data:
