@@ -1,0 +1,27 @@
+### Health Check
+GET http://localhost:8080/health
+Accept: application/json
+
+### Ping Check
+GET http://localhost:8080/ping
+Accept: application/json
+
+### Create API Key Token
+POST http://localhost:8080/api-key
+Content-Type: application/json
+
+{
+  "time_window": 5,
+  "max_requests": 2,
+  "blocked_duration": 5,
+  "token_ttl": 3600
+}
+
+### Protected Endpoint (IP Rate Limit - no token)
+GET http://localhost:8080/protected
+Accept: application/json
+
+### Protected Endpoint (Token Rate Limit - replace with generated token)
+GET http://localhost:8080/protected
+Accept: application/json
+API_KEY: <replace-with-generated-token>
