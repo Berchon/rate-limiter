@@ -1,0 +1,25 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - ineffassign
+    - unused
+    - revive
+    - gosec
+    - misspell
+  exclusions:
+    generated: lax
+    paths:
+      - ".*_mock\\.go$"
+      - "internal/business/usecase/mock"
+
+formatters:
+  enable:
+    - gofmt
