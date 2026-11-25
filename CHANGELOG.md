@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Versioned Git hooks in `.githooks/` (`pre-commit` enforcing `gofmt`, `make lint`, and `make test-unit`; `commit-msg` enforcing Conventional Commits 1.0.0 in English).
+- Standardized `Makefile` providing targets for build, run, test with race detection, configurable coverage gates (`test-unit`, `test-integration`), coverage reporting, linting, hooks setup, and Docker Compose orchestration.
+- Linters configuration in `.golangci.yml` enabling `errcheck`, `govet`, `staticcheck`, `ineffassign`, `unused`, `revive`, `gosec`, `misspell`, and `gofmt`.
 - Multi-stage `Dockerfile` (`golang:1.26.4-alpine` builder and non-root `alpine:3.21` runtime with healthcheck).
 - `.dockerignore` to keep Docker build contexts minimal and free of local artifacts.
 - `STORAGE_TYPE` configuration variable (`redis` | `memory`) in `.env.example`.

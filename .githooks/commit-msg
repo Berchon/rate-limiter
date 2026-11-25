@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ "$#" -lt 1 ] || [ ! -f "$1" ]; then
+  echo "Error: commit message file path is required." >&2
+  exit 1
+fi
+
+commit_msg_file="$1"
+subject="$(grep -v '^#' "${commit_msg_file}" | head -n 1 | tr -d '\r')"
+
+if [ -z "${subject}" ]; then
+  echo "Error: commit message subject line cannot be empty." >&2
+  exit 1
+fi
+
+# Allow standard Git-generated merge and revert commits.
+if [[ "${subject}" =~ ^(Merge\ |Revert\ \") ]]; then
+  exit 0
+fi
+
+max_length=72
+if [ "${#subject}" -gt "${max_length}" ]; then
+  echo "Error: commit subject line exceeds ${max_length} characters (${#subject})." >&2
+  echo "Subject: ${subject}" >&2
+  exit 1
+fi
+
+if [[ "${subject}" == *. ]]; then
+  echo "Error: commit subject line must not end with a period." >&2
+  echo "Subject: ${subject}" >&2
+  exit 1
+fi
+
+conventional_regex='^(feat|fix|refactor|test|docs|chore|build|ci)(\([a-z0-9][a-z0-9._/-]*\))?!?: [a-z].*$'
+if ! [[ "${subject}" =~ ${conventional_regex} ]]; then
+  cat >&2 <<EOF
+Error: commit message does not follow Conventional Commits 1.0.0 in English.
+Subject: ${subject}
+
+Expected format:
+  <type>(<optional-scope>): <imperative lowercase summary>
+
+Allowed types:
+  feat, fix, refactor, test, docs, chore, build, ci
+
+Examples:
+  chore(hooks): add versioned pre-commit and commit-msg quality gates
+  feat(redis): implement atomic rate-limit check via Lua script
+  fix(storage): prevent goroutine leak on token expiration
+EOF
+  exit 1
+fi
