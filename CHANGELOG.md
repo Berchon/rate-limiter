@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- GitHub Actions CI workflow (`.github/workflows/ci.yml`) running parallel jobs for `gofmt` + `golangci-lint`, unit tests with `-race` and coverage summary, integration tests with `-race` and coverage summary, and multi-stage Docker build validation.
 - Versioned Git hooks in `.githooks/` (`pre-commit` enforcing `gofmt`, `make lint`, and `make test-unit`; `commit-msg` enforcing Conventional Commits 1.0.0 in English).
 - Standardized `Makefile` providing targets for build, run, test with race detection, configurable coverage gates (`test-unit`, `test-integration`), coverage reporting, linting, hooks setup, and Docker Compose orchestration.
 - Linters configuration in `.golangci.yml` enabling `errcheck`, `govet`, `staticcheck`, `ineffassign`, `unused`, `revive`, `gosec`, `misspell`, and `gofmt`.
