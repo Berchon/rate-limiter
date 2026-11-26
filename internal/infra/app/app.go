@@ -56,7 +56,7 @@ func (a *app) Start() {
 
 	// Inicia servidor
 	go func() {
-		log.Printf("🚀 Starting server on %s", a.cfg.AppPort)
+		log.Printf("🚀 Starting server on %s", a.cfg.Port)
 		if err := a.server.Start(); err != nil {
 			if err.Error() != "http: Server closed" {
 				log.Fatalf("💥 Server error: %v", err)

@@ -2,7 +2,7 @@ package di
 
 import (
 	"context"
-	"fmt"
+	"log"
 
 	"github.com/Berchon/rate-limiter/internal/business/usecase"
 	"github.com/Berchon/rate-limiter/internal/infra/config"
@@ -26,19 +26,18 @@ func BuildDependencies(cfg *config.Config) *Dependencies {
 	// Alternativa InMemory
 	// store := storage.NewInMemoryStore(defaultTTL)
 
-	// Cria cliente Redis
-	addr := fmt.Sprintf("%s:%s", cfg.RedisHost, cfg.RedisPort)
-	fmt.Println("Connecting to Redis at", addr)
-	redisClient := redis.NewClient(&redis.Options{
-		Addr:     fmt.Sprintf("%s:%s", cfg.RedisHost, cfg.RedisPort),
-		Password: cfg.RedisPassword,
-		DB:       cfg.RedisDB,
-	})
+	redisOpts, err := redis.ParseURL(cfg.RedisURL)
+	if err != nil {
+		log.Fatal("invalid REDIS_URL: check scheme (redis:// or rediss://) and URI format")
+	}
+
+	log.Printf("Connecting to Redis at %s", redisOpts.Addr)
+	redisClient := redis.NewClient(redisOpts)
 
 	// Cria store Redis
 	store := redisStore.NewRedisStore(redisClient)
 	pong, err := redisClient.Ping(context.Background()).Result()
-	fmt.Println("Redis test ping:", pong, "err:", err)
+	log.Printf("Redis test ping: %s (err=%v)", pong, err)
 
 	// 	// --- UseCases ---
 	rateLimiterUC := usecase.NewRateLimiterUseCase(

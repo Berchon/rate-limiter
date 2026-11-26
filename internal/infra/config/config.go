@@ -9,11 +9,8 @@ import (
 )
 
 type Config struct {
-	AppPort                 string `mapstructure:"APP_PORT"`
-	RedisHost               string `mapstructure:"REDIS_HOST"`
-	RedisPort               string `mapstructure:"REDIS_PORT"`
-	RedisDB                 int    `mapstructure:"REDIS_DB"`
-	RedisPassword           string `mapstructure:"REDIS_PASSWORD"`
+	Port                    string `mapstructure:"PORT"`
+	RedisURL                string `mapstructure:"REDIS_URL"`
 	RateByIPTimeWindow      int    `mapstructure:"RATE_BY_IP_TIME_WINDOW"`
 	RateByIPMaxRequests     int    `mapstructure:"RATE_BY_IP_MAX_REQUESTS"`
 	RateByIPBlockedDuration int    `mapstructure:"RATE_BY_IP_BLOCKED_DURATION"`
@@ -23,20 +20,17 @@ type Config struct {
 
 func LoadConfig() (*Config, error) {
 	if err := godotenv.Load(".env"); err != nil {
-		log.Println("⚠️ No .env file found (probably running in Docker or production)")
+		log.Println("No .env file found, reading configuration from environment variables")
 	}
 
-	// Defaults
-	viper.SetDefault("APP_PORT", "8081")
-	viper.SetDefault("REDIS_HOST", "localhost")
-	viper.SetDefault("REDIS_PORT", "6379")
-	viper.SetDefault("REDIS_DB", 0)
-	viper.SetDefault("REDIS_PASSWORD", "")
-	viper.SetDefault("RATE_BY_IP_TIME_WINDOW", 99)
-	viper.SetDefault("RATE_BY_IP_MAX_REQUESTS", 9)
-	viper.SetDefault("RATE_BY_IP_BLOCKED_DURATION", 299)
+	// Defaults aligned with .env.example
+	viper.SetDefault("PORT", "8080")
+	viper.SetDefault("REDIS_URL", "redis://localhost:6379/0")
+	viper.SetDefault("RATE_BY_IP_TIME_WINDOW", 5)
+	viper.SetDefault("RATE_BY_IP_MAX_REQUESTS", 2)
+	viper.SetDefault("RATE_BY_IP_BLOCKED_DURATION", 60)
 	viper.SetDefault("ENABLE_TOKEN_LIMITING", true)
-	viper.SetDefault("DEFAULT_TOKEN_TTL", 3699)
+	viper.SetDefault("DEFAULT_TOKEN_TTL", 40)
 
 	viper.AutomaticEnv()
 
@@ -44,7 +38,7 @@ func LoadConfig() (*Config, error) {
 	if err := viper.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
-	fmt.Println("Loaded config:", cfg)
+	log.Printf("Configuration loaded (port=%s)", cfg.Port)
 
 	return &cfg, nil
 }

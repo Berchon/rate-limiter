@@ -35,7 +35,7 @@ func NewServer(cfg *config.Config, deps *di.Dependencies) Server {
 		deps:   deps,
 		router: router,
 		srv: &http.Server{
-			Addr:    fmt.Sprintf(":%s", cfg.AppPort),
+			Addr:    fmt.Sprintf(":%s", cfg.Port),
 			Handler: r,
 		},
 	}
