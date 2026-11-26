@@ -2,18 +2,18 @@ package entity
 
 import "time"
 
-// TokenConfig representa a configuração de limite de requisições por token
+// TokenConfig represents the rate-limit configuration for an API token.
 type TokenConfig struct {
-	Token                  string    // token gerado
-	TimeWindowSeconds      int       // janela de tempo para contar requisições
-	MaxRequests            int       // número máximo de requisições dentro da janela
-	BlockedDurationSeconds int       // tempo que o token/IP fica bloqueado se exceder limite
-	TokenTTLSeconds        int       // tempo de vida do token
-	CreatedAt              time.Time // timestamp de criação
-	ExpiresAt              time.Time // timestamp de expiração real
+	Token                  string    // Generated token identifier
+	TimeWindowSeconds      int       // Sliding/fixed window duration in seconds
+	MaxRequests            int       // Maximum requests allowed within the window
+	BlockedDurationSeconds int       // Block duration in seconds after exceeding the limit
+	TokenTTLSeconds        int       // Token time-to-live in seconds
+	CreatedAt              time.Time // Creation timestamp
+	ExpiresAt              time.Time // Expiration timestamp
 }
 
-// NewTokenConfig cria uma nova instância de TokenConfig
+// NewTokenConfig creates a new TokenConfig instance with computed creation and expiration timestamps.
 func NewTokenConfig(token string, timeWindow, maxRequests, blockedDuration, tokenTTL int) *TokenConfig {
 	now := time.Now()
 	return &TokenConfig{
@@ -27,17 +27,17 @@ func NewTokenConfig(token string, timeWindow, maxRequests, blockedDuration, toke
 	}
 }
 
-// BlockedDuration retorna o tempo de bloqueio como time.Duration
+// BlockedDuration returns the block duration as a time.Duration.
 func (t *TokenConfig) BlockedDuration() time.Duration {
 	return time.Duration(t.BlockedDurationSeconds) * time.Second
 }
 
-// TimeWindow retorna a janela de tempo como time.Duration
+// TimeWindow returns the rate-limit window as a time.Duration.
 func (t *TokenConfig) TimeWindow() time.Duration {
 	return time.Duration(t.TimeWindowSeconds) * time.Second
 }
 
-// TTL retorna o tempo de vida restante do token
+// TTL returns the remaining lifetime of the token until ExpiresAt.
 func (t *TokenConfig) TTL() time.Duration {
 	return time.Until(t.ExpiresAt)
 }
