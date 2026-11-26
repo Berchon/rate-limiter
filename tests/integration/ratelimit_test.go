@@ -36,7 +36,7 @@ func setup(t *testing.T) (*miniredis.Miniredis, http.Handler, http.Handler) {
 	cfg, err := config.LoadConfig()
 	require.NoError(t, err)
 
-	store := redisStore.NewRedisStore(client)
+	store := redisStore.NewStore(client)
 
 	rlUseCase := usecase.NewRateLimiterUseCase(
 		store,

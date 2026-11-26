@@ -38,7 +38,7 @@ func BuildDependencies(cfg *config.Config) *Dependencies {
 	redisClient := redis.NewClient(redisOpts)
 
 	// Cria store Redis
-	store := redisStore.NewRedisStore(redisClient)
+	store := redisStore.NewStore(redisClient)
 	pong, err := redisClient.Ping(context.Background()).Result()
 	log.Printf("Redis test ping: %s (err=%v)", pong, err)
 
