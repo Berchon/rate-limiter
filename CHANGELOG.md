@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Structured configuration logging via `log/slog` (`LoadConfigWithLogger`), `STORAGE_TYPE` (`redis` | `memory`) option, HTTP server timeout settings, invariant validation (`Config.Validate`), and Redis credential masking (`MaskRedisURL`) in `internal/infra/config`.
+- `RateLimitDecision` domain entity and unit tests in `internal/business/entity` (`>= 85%` package coverage).
+- Typed store result structs (`AddRequestResult`, `BlockStatus`) and `context.Context` propagation in `service.LimiterStore` contract.
+
+### Changed
+- Translated domain entities (`LimiterKey`, `TokenConfig`), DTOs (`CreateAPIKeyRequest`, `CreateAPIKeyResponse`), and `service.LimiterStore` comments to English.
+- Minimally adapted `RedisStore`, `InMemoryStore`, and `RateLimiterUseCase` signatures to satisfy the updated `service.LimiterStore` contract.
+
+### Removed
+- Dead code: `RequestEvent` (`internal/business/entity/request_event.go`), `LimiterStoreConfig`, and `NewLimiterStore` (`internal/business/service/store.go`).
 
 ## [0.2.0] - 2026-11-25
 
