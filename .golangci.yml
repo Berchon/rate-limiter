@@ -24,7 +24,6 @@ linters:
       - "internal/infra/http/handler/"
       - "internal/infra/http/middleware/"
       - "internal/infra/http/routes/"
-      - "internal/infra/redis/"
       - "internal/infra/storage/"
       - "tests/integration/"
 
