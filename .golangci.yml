@@ -19,6 +19,14 @@ linters:
     paths:
       - ".*_mock\\.go$"
       - "internal/business/usecase/mock"
+      # Temporary progressive exclusions for legacy packages refactored in Phase 2 (T07-T14)
+      - "internal/business/"
+      - "internal/infra/http/handler/"
+      - "internal/infra/http/middleware/"
+      - "internal/infra/http/routes/"
+      - "internal/infra/redis/"
+      - "internal/infra/storage/"
+      - "tests/integration/"
 
 formatters:
   enable:
