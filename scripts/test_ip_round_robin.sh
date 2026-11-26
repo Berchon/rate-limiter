@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# test_rate_limiter_intercalated.sh
-# Teste do rate limiter por IP com requisições intercaladas (round-robin)
+# Round-robin (interleaved) IP rate-limiting smoke test with Redis FLUSHDB cleanup.
 
 set -euo pipefail
 
@@ -10,30 +9,29 @@ IP_LIST=("1.1.1.1" "2.2.2.2" "3.3.3.3")
 REQUESTS_PER_IP="${REQUESTS_PER_IP:-50}"
 SLEEP_BETWEEN_REQUESTS="${SLEEP_BETWEEN_REQUESTS:-0.05}"
 
-echo "🚀 Test Rate Limiter (intercalado)"
+echo "Rate Limiter Round-Robin IP Test"
 echo "Server: $SERVER_URL"
 echo "IPs: ${IP_LIST[*]}"
-echo "Requests per IP: $REQUESTS_PER_IP"
+echo "Rounds per IP: $REQUESTS_PER_IP"
 echo "----------------------------------------"
 
-# Limpa o banco Redis antes do teste
-echo "🧹 Limpando banco Redis (FLUSHDB)..."
-$REDIS_CLI FLUSHDB
-echo "Banco limpo com sucesso!"
+echo "Flushing Redis database (FLUSHDB)..."
+$REDIS_CLI FLUSHDB >/dev/null
+echo "Redis flushed successfully."
 echo "----------------------------------------"
 
-# Para REQUESTS_PER_IP rounds, em cada round faz uma requisição para cada IP (round-robin)
-for ((round=1; round<=REQUESTS_PER_IP; round++)); do
-  echo -e "\n🔁 Round #$round"
+for ((round = 1; round <= REQUESTS_PER_IP; round++)); do
+  echo ""
+  echo "Round #$round"
   for ip in "${IP_LIST[@]}"; do
-    http_code=$(curl -s -o /dev/null -w "%{http_code}" -H "X-Forwarded-For: $ip" "$SERVER_URL" || echo "000")
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" -H "X-Forwarded-For: $ip" "$SERVER_URL" || true)
 
     if [[ "$http_code" == "200" ]]; then
-      echo -n "✅ [$ip] round #$round -> 200 OK  "
+      printf "OK   [%s] round #%d -> 200 OK" "$ip" "$round"
     elif [[ "$http_code" == "429" ]]; then
-      echo -n "⚠️  [$ip] round #$round -> 429 TOO MANY REQUESTS  "
+      printf "LIM  [%s] round #%d -> 429 TOO MANY REQUESTS" "$ip" "$round"
     else
-      echo -n "❌ [$ip] round #$round -> HTTP $http_code  "
+      printf "ERR  [%s] round #%d -> HTTP %s" "$ip" "$round" "$http_code"
     fi
 
     cnt=$($REDIS_CLI GET "ip:${ip}" 2>/dev/null || true)
@@ -45,8 +43,9 @@ for ((round=1; round<=REQUESTS_PER_IP; round++)); do
   done
 done
 
-echo -e "\n----------------------------------------"
-echo "🔎 Resultado final (contadores e bloqueios no Redis):"
+echo ""
+echo "----------------------------------------"
+echo "Final Redis state (counters and blocks):"
 for ip in "${IP_LIST[@]}"; do
   cnt=$($REDIS_CLI GET "ip:${ip}" 2>/dev/null || true)
   blk=$($REDIS_CLI GET "ip:${ip}:blocked" 2>/dev/null || true)
@@ -55,7 +54,8 @@ for ip in "${IP_LIST[@]}"; do
   echo "IP: $ip | count=${cnt:-0} | ttl=${ttl} | blocked=${blk:-no} | blocked_ttl=${blk_ttl}"
 done
 
-echo -e "\n----------------------------------------"
-echo "🧹 Limpando Redis novamente (FLUSHDB)..."
-$REDIS_CLI FLUSHDB
-echo "✅ Teste concluído e Redis limpo!"
+echo ""
+echo "----------------------------------------"
+echo "Flushing Redis database (FLUSHDB)..."
+$REDIS_CLI FLUSHDB >/dev/null
+echo "Test completed and Redis cleaned."

@@ -1,0 +1,30 @@
+# Version control and CI/CD
+.git
+.gitignore
+.githooks
+.github
+
+# Local environment and secrets
+.env
+.env.*
+
+# Documentation and manual testing assets
+README*.md
+CHANGELOG.md
+API/
+scripts/
+docker-compose.yml
+
+# Tests and coverage artifacts
+tests/
+*_test.go
+coverage*.out
+coverage*.html
+*.cov
+
+# Build outputs and IDE files
+bin/
+rate-limiter
+.vscode/
+.idea/
+.DS_Store

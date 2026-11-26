@@ -1,3 +1,23 @@
+# Local environment files
 .env
-.vscode
+.env.local
+
+# Binaries and build artifacts
+bin/
+rate-limiter
+*.exe
+*.out
+
+# Test and coverage artifacts
+coverage*.out
+coverage*.html
+*.cov
+*.test
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+
+# Temporary notes
 *.txt

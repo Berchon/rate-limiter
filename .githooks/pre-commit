@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "${script_dir}/.." && pwd)"
+cd "${repo_root}"
+
+echo "[pre-commit] Checking Go formatting (gofmt)..."
+unformatted="$(gofmt -l .)"
+if [ -n "${unformatted}" ]; then
+  echo "Error: the following Go files are not formatted with gofmt:" >&2
+  echo "${unformatted}" >&2
+  echo "Run 'gofmt -w .' to fix formatting." >&2
+  exit 1
+fi
+
+echo "[pre-commit] Running linter (make lint)..."
+make lint
+
+echo "[pre-commit] Running unit tests (make test-unit)..."
+make test-unit
+
+echo "[pre-commit] All quality gates passed."

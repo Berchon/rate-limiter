@@ -1,6 +1,6 @@
 module github.com/Berchon/rate-limiter
 
-go 1.24.4
+go 1.26.4
 
 require (
 	github.com/go-chi/chi v1.5.5

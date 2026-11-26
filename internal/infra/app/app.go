@@ -1,3 +1,4 @@
+// Package app manages the application startup and graceful shutdown lifecycle.
 package app
 
 import (
@@ -14,6 +15,7 @@ import (
 	httpInfra "github.com/Berchon/rate-limiter/internal/infra/http"
 )
 
+// App defines the application lifecycle.
 type App interface {
 	Start()
 	Stop(ctx context.Context) error
@@ -24,7 +26,7 @@ type app struct {
 	server httpInfra.Server
 }
 
-// func NewApp(cfg *config.Config) App {
+// NewApp creates and wires a new application instance.
 func NewApp() App {
 	// Carrega configuração
 	// cfgService := config.NewConfigService()
@@ -56,7 +58,7 @@ func (a *app) Start() {
 
 	// Inicia servidor
 	go func() {
-		log.Printf("🚀 Starting server on %s", a.cfg.AppPort)
+		log.Printf("🚀 Starting server on %s", a.cfg.Port)
 		if err := a.server.Start(); err != nil {
 			if err.Error() != "http: Server closed" {
 				log.Fatalf("💥 Server error: %v", err)
