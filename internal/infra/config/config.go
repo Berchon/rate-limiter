@@ -1,3 +1,4 @@
+// Package config loads and exposes application configuration from environment variables.
 package config
 
 import (
@@ -8,6 +9,7 @@ import (
 	"github.com/spf13/viper"
 )
 
+// Config holds the application runtime configuration.
 type Config struct {
 	Port                    string `mapstructure:"PORT"`
 	RedisURL                string `mapstructure:"REDIS_URL"`
@@ -18,6 +20,7 @@ type Config struct {
 	DefaultTokenTTL         int    `mapstructure:"DEFAULT_TOKEN_TTL"`
 }
 
+// LoadConfig loads configuration from .env and environment variables.
 func LoadConfig() (*Config, error) {
 	if err := godotenv.Load(".env"); err != nil {
 		log.Println("No .env file found, reading configuration from environment variables")

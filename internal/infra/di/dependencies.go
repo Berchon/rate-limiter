@@ -1,3 +1,4 @@
+// Package di wires application dependencies across infrastructure and business layers.
 package di
 
 import (
@@ -12,6 +13,7 @@ import (
 	redis "github.com/redis/go-redis/v9"
 )
 
+// Dependencies holds the wired application handlers and middleware.
 type Dependencies struct {
 	GetHealthHandler    handler.GetHealthHandler
 	GetPingHandler      handler.GetPingHandler
@@ -19,6 +21,7 @@ type Dependencies struct {
 	RateLimitMiddleware middleware.RateLimitMiddleware
 }
 
+// BuildDependencies initializes storage, use cases, handlers, and middleware.
 func BuildDependencies(cfg *config.Config) *Dependencies {
 	// --- Storage / LimiterStore ---
 	// defaultTTL := time.Duration(cfg.DefaultTokenTTL) * time.Second
@@ -48,7 +51,7 @@ func BuildDependencies(cfg *config.Config) *Dependencies {
 	)
 
 	// --- Handlers ---
-	createApiKeyHandler := handler.NewCreateAPIKeyHandler(rateLimiterUC)
+	createAPIKeyHandler := handler.NewCreateAPIKeyHandler(rateLimiterUC)
 	getHealthHandler := handler.NewGetHealthHandler()
 	getPingHandler := handler.NewGetPingHandler()
 
@@ -58,7 +61,7 @@ func BuildDependencies(cfg *config.Config) *Dependencies {
 	return &Dependencies{
 		GetHealthHandler:    getHealthHandler,
 		GetPingHandler:      getPingHandler,
-		CreateAPIKeyHandler: createApiKeyHandler,
+		CreateAPIKeyHandler: createAPIKeyHandler,
 		RateLimitMiddleware: rateLimitMiddleware,
 	}
 }

@@ -1,9 +1,11 @@
+// Package http provides the HTTP server lifecycle and transport wiring.
 package http
 
 import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/Berchon/rate-limiter/internal/infra/config"
 	"github.com/Berchon/rate-limiter/internal/infra/di"
@@ -11,6 +13,7 @@ import (
 	"github.com/go-chi/chi"
 )
 
+// Server defines the HTTP server lifecycle operations.
 type Server interface {
 	Start() error
 	Stop(ctx context.Context) error
@@ -35,8 +38,9 @@ func NewServer(cfg *config.Config, deps *di.Dependencies) Server {
 		deps:   deps,
 		router: router,
 		srv: &http.Server{
-			Addr:    fmt.Sprintf(":%s", cfg.Port),
-			Handler: r,
+			Addr:              fmt.Sprintf(":%s", cfg.Port),
+			Handler:           r,
+			ReadHeaderTimeout: 5 * time.Second,
 		},
 	}
 }
