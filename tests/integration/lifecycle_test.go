@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net"
@@ -146,7 +147,7 @@ func TestApplicationStartsWhenRedisIsUnreachable(t *testing.T) {
 	resp, err := http.Get(base + "/protected")
 	require.NoError(t, err)
 	_ = resp.Body.Close()
-	assert.Equal(t, http.StatusTooManyRequests, resp.StatusCode)
+	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
 
 	cancel()
 
@@ -161,6 +162,7 @@ func TestApplicationStartsWhenRedisIsUnreachable(t *testing.T) {
 func TestRedisOutageFailsClosed(t *testing.T) {
 	mr := miniredis.RunT(t)
 	cfg := loadConfig(t, config.StorageTypeRedis, "redis://"+mr.Addr()+"/0", true)
+	require.False(t, cfg.FailOpen)
 
 	env := buildEnv(t, cfg, mr.FastForward)
 	require.Equal(t, http.StatusOK, env.get(t, "192.0.2.50", "").Code)
@@ -168,9 +170,43 @@ func TestRedisOutageFailsClosed(t *testing.T) {
 	mr.Close()
 
 	rr := env.get(t, "192.0.2.50", "")
-	assertRateLimited(t, rr)
+	assert.Equal(t, http.StatusServiceUnavailable, rr.Code)
+	assert.Equal(t, "application/json", rr.Header().Get("Content-Type"))
+	assert.Empty(t, rr.Header().Get("X-RateLimit-Limit"))
+	assert.Empty(t, rr.Header().Get("X-RateLimit-Remaining"))
+	assert.Empty(t, rr.Header().Get("X-RateLimit-Reset"))
+	assert.Empty(t, rr.Header().Get("Retry-After"))
+
+	var payload map[string]string
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &payload))
+	assert.Equal(t, "service temporarily unavailable", payload["error"])
 
 	rr = env.do(t, http.MethodPost, "/api-key", "192.0.2.50", "", map[string]int{
+		"time_window": 5, "max_requests": 5, "blocked_duration": 5, "token_ttl": 5,
+	})
+	assert.Equal(t, http.StatusInternalServerError, rr.Code)
+}
+
+func TestRedisOutageFailsOpen(t *testing.T) {
+	mr := miniredis.RunT(t)
+	t.Setenv("FAIL_OPEN", "true")
+	cfg := loadConfig(t, config.StorageTypeRedis, "redis://"+mr.Addr()+"/0", true)
+	require.True(t, cfg.FailOpen)
+
+	env := buildEnv(t, cfg, mr.FastForward)
+	require.Equal(t, http.StatusOK, env.get(t, "192.0.2.51", "").Code)
+
+	mr.Close()
+
+	rr := env.get(t, "192.0.2.51", "")
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, "protected content", rr.Body.String())
+	assert.Empty(t, rr.Header().Get("X-RateLimit-Limit"))
+	assert.Empty(t, rr.Header().Get("X-RateLimit-Remaining"))
+	assert.Empty(t, rr.Header().Get("X-RateLimit-Reset"))
+	assert.Empty(t, rr.Header().Get("Retry-After"))
+
+	rr = env.do(t, http.MethodPost, "/api-key", "192.0.2.51", "", map[string]int{
 		"time_window": 5, "max_requests": 5, "blocked_duration": 5, "token_ttl": 5,
 	})
 	assert.Equal(t, http.StatusInternalServerError, rr.Code)

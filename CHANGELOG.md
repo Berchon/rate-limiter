@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Configurable `FAIL_OPEN` environment variable (`false` by default) to allow requests through with a structured warning log when the rate-limiter storage backend is unavailable, documented in `.env.example` and covered by unit and integration tests.
+- `WriteServiceUnavailable` HTTP response helper emitting `503 Service Unavailable` with JSON error body (`{"error": "service temporarily unavailable"}`).
+
+### Changed
+- Updated `RateLimitMiddleware` fail-closed error handling (`FAIL_OPEN=false`) to return HTTP `503 Service Unavailable` instead of `429 Too Many Requests` when rate-limit evaluation fails due to storage unavailability.
+
 ## [0.3.0] - 2026-11-27
 
 ### Added
