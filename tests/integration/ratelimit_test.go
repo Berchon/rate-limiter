@@ -50,7 +50,7 @@ func setup(t *testing.T) (*miniredis.Miniredis, http.Handler, http.Handler) {
 		nil,
 	)
 
-	rateLimiter := middleware.NewRateLimitMiddleware(rlUseCase)
+	rateLimiter := middleware.NewRateLimitMiddleware(rlUseCase, nil)
 	createApiKeyHandler := handler.NewCreateAPIKeyHandler(rlUseCase)
 	protectedHandler := rateLimiter.Handle(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

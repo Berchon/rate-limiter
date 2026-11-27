@@ -21,7 +21,6 @@ linters:
       - "internal/business/usecase/mock"
       # Temporary progressive exclusions for legacy packages refactored in Phase 2 (T07-T14)
       - "internal/infra/http/handler/"
-      - "internal/infra/http/middleware/"
       - "internal/infra/http/routes/"
       - "tests/integration/"
 
