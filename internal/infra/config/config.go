@@ -31,6 +31,7 @@ type Config struct {
 	RateByIPBlockedDuration int           `mapstructure:"RATE_BY_IP_BLOCKED_DURATION"`
 	EnableTokenLimiting     bool          `mapstructure:"ENABLE_TOKEN_LIMITING"`
 	DefaultTokenTTL         int           `mapstructure:"DEFAULT_TOKEN_TTL"`
+	FailOpen                bool          `mapstructure:"FAIL_OPEN"`
 	HTTPReadHeaderTimeout   time.Duration `mapstructure:"HTTP_READ_HEADER_TIMEOUT"`
 	HTTPReadTimeout         time.Duration `mapstructure:"HTTP_READ_TIMEOUT"`
 	HTTPWriteTimeout        time.Duration `mapstructure:"HTTP_WRITE_TIMEOUT"`
@@ -63,6 +64,7 @@ func LoadConfigWithLogger(logger *slog.Logger) (*Config, error) {
 	v.SetDefault("RATE_BY_IP_BLOCKED_DURATION", 60)
 	v.SetDefault("ENABLE_TOKEN_LIMITING", true)
 	v.SetDefault("DEFAULT_TOKEN_TTL", 40)
+	v.SetDefault("FAIL_OPEN", false)
 	v.SetDefault("HTTP_READ_HEADER_TIMEOUT", 5*time.Second)
 	v.SetDefault("HTTP_READ_TIMEOUT", 10*time.Second)
 	v.SetDefault("HTTP_WRITE_TIMEOUT", 15*time.Second)
@@ -92,6 +94,7 @@ func LoadConfigWithLogger(logger *slog.Logger) (*Config, error) {
 		slog.Int("rate_by_ip_blocked_duration", cfg.RateByIPBlockedDuration),
 		slog.Bool("enable_token_limiting", cfg.EnableTokenLimiting),
 		slog.Int("default_token_ttl", cfg.DefaultTokenTTL),
+		slog.Bool("fail_open", cfg.FailOpen),
 		slog.Duration("http_read_header_timeout", cfg.HTTPReadHeaderTimeout),
 		slog.Duration("http_read_timeout", cfg.HTTPReadTimeout),
 		slog.Duration("http_write_timeout", cfg.HTTPWriteTimeout),
