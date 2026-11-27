@@ -21,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dead code: `RequestEvent` (`internal/business/entity/request_event.go`), `LimiterStoreConfig`, and `NewLimiterStore` (`internal/business/service/store.go`).
 
+### Fixed
+- Replaced sleeping background goroutines in `InMemoryStore.SaveTokenConfig` with lazy expiration, fixed canonical `token:<id>` key lookup and `ResetKey` mismatch, added `context.Context` cancellation checks and `RedisStore`-parity rate-limit calculations, and removed `internal/infra/storage/` from `.golangci.yml` temporary exclusions (`>= 85%` package coverage).
+
 ## [0.2.0] - 2026-11-25
 
 ### Added
