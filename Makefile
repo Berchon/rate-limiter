@@ -8,9 +8,10 @@ INTEGRATION_COV_FILE := coverage-integration.out
 TOTAL_COV_FILE := coverage.out
 COV_HTML_FILE := coverage.html
 
-# Progressive coverage thresholds (set to 85 in Phase 2 / T14)
-UNIT_MIN_COV ?= 0
-INTEGRATION_MIN_COV ?= 0
+# Global coverage gates (generated mocks are excluded from the measurement)
+UNIT_MIN_COV ?= 85
+INTEGRATION_MIN_COV ?= 85
+COV_EXCLUDE := /mock/
 
 GOLANGCI_LINT ?= golangci-lint
 MOCKERY_VERSION ?= v3.9.2
@@ -30,12 +31,14 @@ test:
 
 test-unit:
 	go test -race -covermode=atomic -coverprofile=$(UNIT_COV_FILE) ./internal/... ./cmd/...
+	@grep -v '$(COV_EXCLUDE)' $(UNIT_COV_FILE) > $(UNIT_COV_FILE).tmp && mv $(UNIT_COV_FILE).tmp $(UNIT_COV_FILE)
 	@cov=$$(go tool cover -func=$(UNIT_COV_FILE) | awk '/^total:/ {gsub(/%/, "", $$3); print $$3}'); \
 	echo "Unit coverage: $${cov:-0}% (minimum: $(UNIT_MIN_COV)%)"; \
 	awk -v cov="$${cov:-0}" -v min="$(UNIT_MIN_COV)" 'BEGIN { if (cov + 0 < min + 0) { printf "FAIL: unit coverage %.2f%% is below minimum %.2f%%\n", cov, min; exit 1 } }'
 
 test-integration:
 	go test -race -covermode=atomic -coverpkg=./internal/... -coverprofile=$(INTEGRATION_COV_FILE) ./tests/integration/...
+	@grep -v '$(COV_EXCLUDE)' $(INTEGRATION_COV_FILE) > $(INTEGRATION_COV_FILE).tmp && mv $(INTEGRATION_COV_FILE).tmp $(INTEGRATION_COV_FILE)
 	@cov=$$(go tool cover -func=$(INTEGRATION_COV_FILE) | awk '/^total:/ {gsub(/%/, "", $$3); print $$3}'); \
 	echo "Integration coverage: $${cov:-0}% (minimum: $(INTEGRATION_MIN_COV)%)"; \
 	awk -v cov="$${cov:-0}" -v min="$(INTEGRATION_MIN_COV)" 'BEGIN { if (cov + 0 < min + 0) { printf "FAIL: integration coverage %.2f%% is below minimum %.2f%%\n", cov, min; exit 1 } }'

@@ -20,4 +20,7 @@ make lint
 echo "[pre-commit] Running unit tests (make test-unit)..."
 make test-unit
 
+echo "[pre-commit] Running integration tests (make test-integration)..."
+make test-integration
+
 echo "[pre-commit] All quality gates passed."
