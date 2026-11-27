@@ -8,12 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Centralized Mockery v3 configuration (`.mockery.yaml` with `testify` template), `make mocks` target pinned to `v3.9.2`, and CI mock-drift check in `.github/workflows/ci.yml`.
 - Atomic Redis rate-limiting Lua script embedded via `//go:embed` (`internal/infra/redis/scripts/add_request.lua`, executed via `EVALSHA` / `redis.NewScript`) with automatic orphan-key TTL healing, sub-second `PTTL` precision, and `miniredis` unit test suite (`>= 85%` package coverage) in `internal/infra/redis`.
 - Structured configuration logging via `log/slog` (`LoadConfigWithLogger`), `STORAGE_TYPE` (`redis` | `memory`) option, HTTP server timeout settings, invariant validation (`Config.Validate`), and Redis credential masking (`MaskRedisURL`) in `internal/infra/config`.
 - `RateLimitDecision` domain entity and unit tests in `internal/business/entity` (`>= 85%` package coverage).
 - Typed store result structs (`AddRequestResult`, `BlockStatus`) and `context.Context` propagation in `service.LimiterStore` contract.
 
 ### Changed
+- Migrated `MockRateLimiterUseCase` generation from Mockery v2 `//go:generate` directives to Mockery v3 (`NewMockRateLimiterUseCase(t)` + `.EXPECT()`), and updated `internal/infra/http/middleware/ratelimit_test.go` accordingly.
 - Refactored `RateLimiterUseCase` (`internal/business/usecase`) to propagate `context.Context`, inject `*slog.Logger` and `RateLimiterConfig` (`EnableTokenLimiting`, `DefaultTokenTTL`), return `*entity.RateLimitDecision`, update `MockRateLimiterUseCase`, add table-driven unit tests (`>= 85%` package coverage), and remove `internal/business/` from `.golangci.yml` temporary exclusions.
 - Renamed `redis.RedisStore`/`redis.NewRedisStore` to idiomatic `redis.Store`/`redis.NewStore`, removed `internal/infra/redis/` from `.golangci.yml` temporary exclusions, and standardized key prefixes and error wrapping.
 - Translated domain entities (`LimiterKey`, `TokenConfig`), DTOs (`CreateAPIKeyRequest`, `CreateAPIKeyResponse`), and `service.LimiterStore` comments to English.

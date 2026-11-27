@@ -13,8 +13,10 @@ UNIT_MIN_COV ?= 0
 INTEGRATION_MIN_COV ?= 0
 
 GOLANGCI_LINT ?= golangci-lint
+MOCKERY_VERSION ?= v3.9.2
+MOCKERY ?= go run github.com/vektra/mockery/v3@$(MOCKERY_VERSION)
 
-.PHONY: build run test test-unit test-integration coverage lint setup-hooks docker-up docker-down clean
+.PHONY: build run test test-unit test-integration coverage lint mocks setup-hooks docker-up docker-down clean
 
 build:
 	@mkdir -p $(BIN_DIR)
@@ -46,6 +48,9 @@ coverage:
 lint:
 	@command -v $(GOLANGCI_LINT) >/dev/null 2>&1 || { echo "Error: golangci-lint not found in PATH"; exit 1; }
 	$(GOLANGCI_LINT) run ./...
+
+mocks:
+	$(MOCKERY)
 
 setup-hooks:
 	git config core.hooksPath .githooks
