@@ -132,6 +132,44 @@ func TestBuildDependencies(t *testing.T) {
 		assert.NotContains(t, logBuf.String(), "top-secret-password")
 	})
 
+	t.Run("wires FailOpen policy into RateLimitMiddleware on redis outage", func(t *testing.T) {
+		tests := []struct {
+			name       string
+			failOpen   bool
+			wantStatus int
+		}{
+			{name: "fail-closed returns 503", failOpen: false, wantStatus: http.StatusServiceUnavailable},
+			{name: "fail-open allows request with 200", failOpen: true, wantStatus: http.StatusOK},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				mr := miniredis.RunT(t)
+				cfg := baseConfig(config.StorageTypeRedis)
+				cfg.RedisURL = "redis://" + mr.Addr() + "/0"
+				cfg.FailOpen = tc.failOpen
+
+				deps, err := BuildDependencies(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+				require.NoError(t, err)
+				t.Cleanup(func() {
+					require.NoError(t, deps.Close())
+				})
+
+				mr.Close()
+
+				req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+				req.RemoteAddr = "192.0.2.10:12345"
+				rec := httptest.NewRecorder()
+
+				deps.RateLimitMiddleware.Handle(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(http.StatusOK)
+				})).ServeHTTP(rec, req)
+
+				assert.Equal(t, tc.wantStatus, rec.Code)
+			})
+		}
+	})
+
 	t.Run("returns error on unsupported STORAGE_TYPE", func(t *testing.T) {
 		cfg := baseConfig("postgres")
 

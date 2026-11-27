@@ -18,7 +18,10 @@ import (
 	usecaseMock "github.com/Berchon/rate-limiter/internal/business/usecase/mock"
 )
 
-const expectedExceededError = "you have reached the maximum number of requests or actions allowed within a certain time frame"
+const (
+	expectedExceededError    = "you have reached the maximum number of requests or actions allowed within a certain time frame"
+	expectedUnavailableError = "service temporarily unavailable"
+)
 
 func executeMiddlewareRequest(mw RateLimitMiddleware, req *stdhttp.Request) (*httptest.ResponseRecorder, string, bool) {
 	rr := httptest.NewRecorder()
@@ -44,12 +47,15 @@ func TestRateLimitMiddleware_Handle(t *testing.T) {
 		apiKey             string
 		expectedIP         string
 		expectedToken      string
+		failOpen           bool
 		decision           *entity.RateLimitDecision
 		limiterErr         error
 		wantStatus         int
 		wantNextCalled     bool
 		wantBody           string
-		wantErrorJSON      bool
+		wantErrorMessage   string
+		wantLogLevel       string
+		wantLogContains    string
 		wantLimitHeader    string
 		wantRemainHeader   string
 		wantResetHeader    string
@@ -77,7 +83,7 @@ func TestRateLimitMiddleware_Handle(t *testing.T) {
 			expectedIP:         "1.2.3.4",
 			decision:           &entity.RateLimitDecision{Allowed: false, Limit: 10, Remaining: 0, ResetSeconds: 30, RetryAfterSeconds: 300, Reason: "rate limit exceeded"},
 			wantStatus:         stdhttp.StatusTooManyRequests,
-			wantErrorJSON:      true,
+			wantErrorMessage:   expectedExceededError,
 			wantLimitHeader:    "10",
 			wantRemainHeader:   "0",
 			wantResetHeader:    "30",
@@ -90,27 +96,57 @@ func TestRateLimitMiddleware_Handle(t *testing.T) {
 			expectedIP:         "1.2.3.4",
 			decision:           &entity.RateLimitDecision{Allowed: false, Limit: 10, Remaining: 0, ResetSeconds: 15, RetryAfterSeconds: 0, Reason: "blocked"},
 			wantStatus:         stdhttp.StatusTooManyRequests,
-			wantErrorJSON:      true,
+			wantErrorMessage:   expectedExceededError,
 			wantLimitHeader:    "10",
 			wantRemainHeader:   "0",
 			wantResetHeader:    "15",
 			wantRetryAfterSeen: false,
 		},
 		{
-			name:          "returns 429 fail-closed when limiter returns error",
-			remoteAddr:    "1.2.3.4:12345",
-			expectedIP:    "1.2.3.4",
-			limiterErr:    assert.AnError,
-			wantStatus:    stdhttp.StatusTooManyRequests,
-			wantErrorJSON: true,
+			name:             "returns 503 fail-closed when limiter returns error",
+			remoteAddr:       "1.2.3.4:12345",
+			expectedIP:       "1.2.3.4",
+			limiterErr:       assert.AnError,
+			wantStatus:       stdhttp.StatusServiceUnavailable,
+			wantErrorMessage: expectedUnavailableError,
+			wantLogLevel:     "ERROR",
+			wantLogContains:  "rate limit evaluation failed",
 		},
 		{
-			name:          "returns 429 fail-closed when limiter returns nil decision",
-			remoteAddr:    "1.2.3.4:12345",
-			expectedIP:    "1.2.3.4",
-			decision:      nil,
-			wantStatus:    stdhttp.StatusTooManyRequests,
-			wantErrorJSON: true,
+			name:             "returns 503 fail-closed when limiter returns nil decision",
+			remoteAddr:       "1.2.3.4:12345",
+			expectedIP:       "1.2.3.4",
+			decision:         nil,
+			wantStatus:       stdhttp.StatusServiceUnavailable,
+			wantErrorMessage: expectedUnavailableError,
+			wantLogLevel:     "ERROR",
+			wantLogContains:  "rate limit decision is nil",
+		},
+		{
+			name:            "allows request when fail-open is enabled and limiter returns error",
+			remoteAddr:      "1.2.3.4:12345",
+			apiKey:          "secret-token-fail-open",
+			expectedIP:      "1.2.3.4",
+			expectedToken:   "secret-token-fail-open",
+			failOpen:        true,
+			limiterErr:      assert.AnError,
+			wantStatus:      stdhttp.StatusOK,
+			wantNextCalled:  true,
+			wantBody:        "ok",
+			wantLogLevel:    "WARN",
+			wantLogContains: "rate limiter unavailable, allowing request (fail-open)",
+		},
+		{
+			name:            "allows request when fail-open is enabled and limiter returns nil decision",
+			remoteAddr:      "1.2.3.4:12345",
+			expectedIP:      "1.2.3.4",
+			failOpen:        true,
+			decision:        nil,
+			wantStatus:      stdhttp.StatusOK,
+			wantNextCalled:  true,
+			wantBody:        "ok",
+			wantLogLevel:    "WARN",
+			wantLogContains: "rate limiter unavailable, allowing request (fail-open)",
 		},
 		{
 			name:             "extracts and trims first valid IP from X-Forwarded-For",
@@ -185,7 +221,7 @@ func TestRateLimitMiddleware_Handle(t *testing.T) {
 				).
 				Return(tc.decision, tc.limiterErr)
 
-			mw := NewRateLimitMiddleware(limiter, logger)
+			mw := NewRateLimitMiddleware(limiter, tc.failOpen, logger)
 
 			req := httptest.NewRequest(stdhttp.MethodGet, "/protected", nil)
 			req = req.WithContext(context.WithValue(req.Context(), traceKey, "req-123"))
@@ -206,11 +242,19 @@ func TestRateLimitMiddleware_Handle(t *testing.T) {
 				assert.Equal(t, tc.wantBody, body)
 			}
 
-			if tc.wantErrorJSON {
+			if tc.wantErrorMessage != "" {
 				assert.Equal(t, "application/json", rr.Header().Get("Content-Type"))
 				var payload map[string]string
 				require.NoError(t, json.Unmarshal([]byte(body), &payload))
-				assert.Equal(t, expectedExceededError, payload["error"])
+				assert.Equal(t, tc.wantErrorMessage, payload["error"])
+			}
+
+			if tc.wantLogLevel != "" && !tc.nilLogger {
+				assert.Contains(t, logBuf.String(), `"level":"`+tc.wantLogLevel+`"`)
+			}
+
+			if tc.wantLogContains != "" && !tc.nilLogger {
+				assert.Contains(t, logBuf.String(), tc.wantLogContains)
 			}
 
 			assert.Equal(t, tc.wantLimitHeader, rr.Header().Get("X-RateLimit-Limit"))

@@ -21,19 +21,21 @@ type RateLimitMiddleware interface {
 }
 
 type rateLimitMiddleware struct {
-	limiter usecase.RateLimiterUseCase
-	logger  *slog.Logger
+	limiter  usecase.RateLimiterUseCase
+	failOpen bool
+	logger   *slog.Logger
 }
 
-// NewRateLimitMiddleware creates a new RateLimitMiddleware with the given use case and logger.
-func NewRateLimitMiddleware(limiter usecase.RateLimiterUseCase, logger *slog.Logger) RateLimitMiddleware {
+// NewRateLimitMiddleware creates a new RateLimitMiddleware with the given use case, fail-open policy, and logger.
+func NewRateLimitMiddleware(limiter usecase.RateLimiterUseCase, failOpen bool, logger *slog.Logger) RateLimitMiddleware {
 	if logger == nil {
 		logger = slog.Default()
 	}
 
 	return &rateLimitMiddleware{
-		limiter: limiter,
-		logger:  logger,
+		limiter:  limiter,
+		failOpen: failOpen,
+		logger:   logger,
 	}
 }
 
@@ -42,24 +44,16 @@ func (m *rateLimitMiddleware) Handle(next stdhttp.Handler) stdhttp.Handler {
 	return stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		ip := extractClientIP(r)
 		token := r.Header.Get(apiKeyHeader)
+		hasToken := token != ""
 
 		decision, err := m.limiter.AllowRequest(r.Context(), ip, token, time.Now())
 		if err != nil {
-			m.logger.ErrorContext(r.Context(), "rate limit evaluation failed",
-				"ip", ip,
-				"has_token", token != "",
-				"error", err,
-			)
-			WriteRateLimitExceeded(w)
+			m.handleEvaluationFailure(w, r, next, ip, hasToken, "rate limit evaluation failed", err)
 			return
 		}
 
 		if decision == nil {
-			m.logger.ErrorContext(r.Context(), "rate limit decision is nil",
-				"ip", ip,
-				"has_token", token != "",
-			)
-			WriteRateLimitExceeded(w)
+			m.handleEvaluationFailure(w, r, next, ip, hasToken, "rate limit decision is nil", nil)
 			return
 		}
 
@@ -72,7 +66,7 @@ func (m *rateLimitMiddleware) Handle(next stdhttp.Handler) stdhttp.Handler {
 
 			m.logger.WarnContext(r.Context(), "request rate limited",
 				"ip", ip,
-				"has_token", token != "",
+				"has_token", hasToken,
 				"reason", decision.Reason,
 				"retry_after_sec", decision.RetryAfterSeconds,
 			)
@@ -82,6 +76,34 @@ func (m *rateLimitMiddleware) Handle(next stdhttp.Handler) stdhttp.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (m *rateLimitMiddleware) handleEvaluationFailure(
+	w stdhttp.ResponseWriter,
+	r *stdhttp.Request,
+	next stdhttp.Handler,
+	ip string,
+	hasToken bool,
+	reason string,
+	err error,
+) {
+	attrs := []any{
+		"ip", ip,
+		"has_token", hasToken,
+	}
+	if err != nil {
+		attrs = append(attrs, "error", err)
+	}
+
+	if m.failOpen {
+		attrs = append(attrs, "reason", reason)
+		m.logger.WarnContext(r.Context(), "rate limiter unavailable, allowing request (fail-open)", attrs...)
+		next.ServeHTTP(w, r)
+		return
+	}
+
+	m.logger.ErrorContext(r.Context(), reason, attrs...)
+	WriteServiceUnavailable(w)
 }
 
 func setRateLimitHeaders(w stdhttp.ResponseWriter, decision *entity.RateLimitDecision) {

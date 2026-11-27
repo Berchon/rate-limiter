@@ -31,11 +31,13 @@ func TestLoadConfig_DefaultsAndOverrides(t *testing.T) {
 		assert.Equal(t, 60, cfg.RateByIPBlockedDuration)
 		assert.True(t, cfg.EnableTokenLimiting)
 		assert.Equal(t, 40, cfg.DefaultTokenTTL)
+		assert.False(t, cfg.FailOpen)
 		assert.Equal(t, 5*time.Second, cfg.HTTPReadHeaderTimeout)
 		assert.Equal(t, 10*time.Second, cfg.HTTPReadTimeout)
 		assert.Equal(t, 15*time.Second, cfg.HTTPWriteTimeout)
 		assert.Equal(t, 60*time.Second, cfg.HTTPIdleTimeout)
 		assert.Contains(t, buf.String(), "configuration loaded")
+		assert.Contains(t, buf.String(), "fail_open=false")
 	})
 
 	t.Run("overrides defaults from environment variables and masks redis credentials in logs", func(t *testing.T) {
@@ -48,6 +50,7 @@ func TestLoadConfig_DefaultsAndOverrides(t *testing.T) {
 		t.Setenv("RATE_BY_IP_BLOCKED_DURATION", "120")
 		t.Setenv("ENABLE_TOKEN_LIMITING", "false")
 		t.Setenv("DEFAULT_TOKEN_TTL", "300")
+		t.Setenv("FAIL_OPEN", "true")
 		t.Setenv("HTTP_READ_HEADER_TIMEOUT", "3s")
 		t.Setenv("HTTP_READ_TIMEOUT", "8s")
 		t.Setenv("HTTP_WRITE_TIMEOUT", "12s")
@@ -66,6 +69,7 @@ func TestLoadConfig_DefaultsAndOverrides(t *testing.T) {
 		assert.Equal(t, 120, cfg.RateByIPBlockedDuration)
 		assert.False(t, cfg.EnableTokenLimiting)
 		assert.Equal(t, 300, cfg.DefaultTokenTTL)
+		assert.True(t, cfg.FailOpen)
 		assert.Equal(t, 3*time.Second, cfg.HTTPReadHeaderTimeout)
 		assert.Equal(t, 8*time.Second, cfg.HTTPReadTimeout)
 		assert.Equal(t, 12*time.Second, cfg.HTTPWriteTimeout)
@@ -74,6 +78,7 @@ func TestLoadConfig_DefaultsAndOverrides(t *testing.T) {
 		logOutput := buf.String()
 		assert.NotContains(t, logOutput, testPass)
 		assert.Contains(t, logOutput, "rediss://redacted@redis.example.com:6379/0")
+		assert.Contains(t, logOutput, "fail_open=true")
 	})
 
 	t.Run("LoadConfig works with nil logger fallback via LoadConfig", func(t *testing.T) {
@@ -129,6 +134,17 @@ func TestLoadConfig_DefaultsAndOverrides(t *testing.T) {
 
 	t.Run("LoadConfigWithLogger returns error when env var has malformed type", func(t *testing.T) {
 		t.Setenv("RATE_BY_IP_TIME_WINDOW", "5s")
+		var buf bytes.Buffer
+		logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+		cfg, err := config.LoadConfigWithLogger(logger)
+		require.Error(t, err)
+		assert.Nil(t, cfg)
+		assert.Contains(t, err.Error(), "failed to unmarshal config")
+	})
+
+	t.Run("LoadConfigWithLogger returns error when FAIL_OPEN has malformed boolean", func(t *testing.T) {
+		t.Setenv("FAIL_OPEN", "not-a-bool")
 		var buf bytes.Buffer
 		logger := slog.New(slog.NewTextHandler(&buf, nil))
 

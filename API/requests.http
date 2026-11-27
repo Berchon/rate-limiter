@@ -1,27 +1,67 @@
-### Health Check
-GET http://localhost:8080/health
+@baseUrl = http://localhost:8080
+@apiKey = <replace-with-generated-token>
+
+### 1. Health Check (always 200 OK)
+GET {{baseUrl}}/health
 Accept: application/json
 
-### Ping Check
-GET http://localhost:8080/ping
+### 2. Ping Check (always 200 OK)
+GET {{baseUrl}}/ping
 Accept: application/json
 
-### Create API Key Token
-POST http://localhost:8080/api-key
+### 3. Create API Key Token (custom TTL)
+# @name createToken
+POST {{baseUrl}}/api-key
+Content-Type: application/json
+
+{
+  "time_window": 5,
+  "max_requests": 3,
+  "blocked_duration": 10,
+  "token_ttl": 3600
+}
+
+### 4. Create API Key Token (default TTL when token_ttl is 0)
+POST {{baseUrl}}/api-key
 Content-Type: application/json
 
 {
   "time_window": 5,
   "max_requests": 2,
   "blocked_duration": 5,
-  "token_ttl": 3600
+  "token_ttl": 0
 }
 
-### Protected Endpoint (IP Rate Limit - no token)
-GET http://localhost:8080/protected
+### 5. Create API Key Token (invalid parameters -> 400 Bad Request)
+POST {{baseUrl}}/api-key
+Content-Type: application/json
+
+{
+  "time_window": 0,
+  "max_requests": 2,
+  "blocked_duration": 5,
+  "token_ttl": 10
+}
+
+### 6. Protected Endpoint - IP Rate Limit (no token)
+# Default config: 2 requests per 5s window; 3rd request returns 429 Too Many Requests + Retry-After
+GET {{baseUrl}}/protected
 Accept: application/json
 
-### Protected Endpoint (Token Rate Limit - replace with generated token)
-GET http://localhost:8080/protected
+### 7. Protected Endpoint - Token Rate Limit (token overrides IP limit)
+# Uses @apiKey (or {{createToken.response.body.token}} in VS Code REST Client)
+GET {{baseUrl}}/protected
 Accept: application/json
-API_KEY: <replace-with-generated-token>
+API_KEY: {{apiKey}}
+
+### 8. Protected Endpoint - Unknown / Expired Token (falls back to IP limit)
+GET {{baseUrl}}/protected
+Accept: application/json
+API_KEY: non-existent-token
+
+### 9. Protected Endpoint - Redis Outage Simulation
+# Stop Redis (e.g., `docker compose stop redis`) and send this request:
+# - With FAIL_OPEN=false (default): returns 503 Service Unavailable
+# - With FAIL_OPEN=true: returns 200 OK (bypass with structured WARN log)
+GET {{baseUrl}}/protected
+Accept: application/json
