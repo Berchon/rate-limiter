@@ -43,7 +43,7 @@ func (h *createApiKeyHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// cria o token via usecase
-	cfg, err := h.usecase.CreateToken(req.TimeWindow, req.MaxRequests, req.BlockedDuration, req.TokenTTL)
+	cfg, err := h.usecase.CreateToken(r.Context(), req.TimeWindow, req.MaxRequests, req.BlockedDuration, req.TokenTTL)
 	if err != nil {
 		h.response.RequestResponse(w, r, "failed to create token", http.StatusInternalServerError)
 		return

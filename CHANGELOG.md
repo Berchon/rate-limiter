@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Typed store result structs (`AddRequestResult`, `BlockStatus`) and `context.Context` propagation in `service.LimiterStore` contract.
 
 ### Changed
+- Refactored `RateLimiterUseCase` (`internal/business/usecase`) to propagate `context.Context`, inject `*slog.Logger` and `RateLimiterConfig` (`EnableTokenLimiting`, `DefaultTokenTTL`), return `*entity.RateLimitDecision`, update `MockRateLimiterUseCase`, add table-driven unit tests (`>= 85%` package coverage), and remove `internal/business/` from `.golangci.yml` temporary exclusions.
 - Renamed `redis.RedisStore`/`redis.NewRedisStore` to idiomatic `redis.Store`/`redis.NewStore`, removed `internal/infra/redis/` from `.golangci.yml` temporary exclusions, and standardized key prefixes and error wrapping.
 - Translated domain entities (`LimiterKey`, `TokenConfig`), DTOs (`CreateAPIKeyRequest`, `CreateAPIKeyResponse`), and `service.LimiterStore` comments to English.
 - Minimally adapted `RedisStore`, `InMemoryStore`, and `RateLimiterUseCase` signatures to satisfy the updated `service.LimiterStore` contract.

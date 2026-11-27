@@ -36,8 +36,8 @@ func (m *rateLimitMiddleware) Handle(next stdhttp.Handler) stdhttp.Handler {
 		token := r.Header.Get("API_KEY")
 		fmt.Println("RateLimitMiddleware: IP =", ip, "Token =", token)
 
-		allowed, _, _, _, err := m.limiter.AllowRequest(ip, token, time.Now())
-		if err != nil || !allowed {
+		decision, err := m.limiter.AllowRequest(r.Context(), ip, token, time.Now())
+		if err != nil || decision == nil || !decision.Allowed {
 			WriteRateLimitExceeded(w)
 			return
 		}
