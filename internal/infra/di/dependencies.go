@@ -46,7 +46,7 @@ func BuildDependencies(cfg *config.Config, logger *slog.Logger) (*Dependencies, 
 
 	rateLimiterUC := buildRateLimiterUseCase(store, cfg, logger)
 
-	return wireHTTPDependencies(rateLimiterUC, closer, logger), nil
+	return wireHTTPDependencies(rateLimiterUC, cfg.FailOpen, closer, logger), nil
 }
 
 // Close releases external resources owned by the dependency container, such as the Redis client.
@@ -83,12 +83,12 @@ func buildRateLimiterUseCase(store service.LimiterStore, cfg *config.Config, log
 	)
 }
 
-func wireHTTPDependencies(rateLimiterUC usecase.RateLimiterUseCase, closer io.Closer, logger *slog.Logger) *Dependencies {
+func wireHTTPDependencies(rateLimiterUC usecase.RateLimiterUseCase, failOpen bool, closer io.Closer, logger *slog.Logger) *Dependencies {
 	return &Dependencies{
 		GetHealthHandler:    handler.NewGetHealthHandler(logger),
 		GetPingHandler:      handler.NewGetPingHandler(logger),
 		CreateAPIKeyHandler: handler.NewCreateAPIKeyHandler(rateLimiterUC, logger),
-		RateLimitMiddleware: middleware.NewRateLimitMiddleware(rateLimiterUC, logger),
+		RateLimitMiddleware: middleware.NewRateLimitMiddleware(rateLimiterUC, failOpen, logger),
 		closer:              closer,
 	}
 }
