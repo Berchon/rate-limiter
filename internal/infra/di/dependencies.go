@@ -60,8 +60,8 @@ func BuildDependencies(cfg *config.Config) *Dependencies {
 	getHealthHandler := handler.NewGetHealthHandler()
 	getPingHandler := handler.NewGetPingHandler()
 
-	// Middleware de rate limit
-	rateLimitMiddleware := middleware.NewRateLimitMiddleware(rateLimiterUC)
+	// Rate limit middleware
+	rateLimitMiddleware := middleware.NewRateLimitMiddleware(rateLimiterUC, nil)
 
 	return &Dependencies{
 		GetHealthHandler:    getHealthHandler,
