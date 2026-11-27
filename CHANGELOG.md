@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Unit test suites (`>= 85%` package coverage) for `internal/infra/http/handler`, `internal/infra/http/routes`, `internal/infra/http`, `internal/infra/di`, and `internal/infra/app`.
 - Standard rate-limit HTTP headers (`X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`) on protected responses and `Retry-After` on HTTP `429` responses in `RateLimitMiddleware`.
 - Centralized Mockery v3 configuration (`.mockery.yaml` with `testify` template), `make mocks` target pinned to `v3.9.2`, and CI mock-drift check in `.github/workflows/ci.yml`.
 - Atomic Redis rate-limiting Lua script embedded via `//go:embed` (`internal/infra/redis/scripts/add_request.lua`, executed via `EVALSHA` / `redis.NewScript`) with automatic orphan-key TTL healing, sub-second `PTTL` precision, and `miniredis` unit test suite (`>= 85%` package coverage) in `internal/infra/redis`.
@@ -16,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Typed store result structs (`AddRequestResult`, `BlockStatus`) and `context.Context` propagation in `service.LimiterStore` contract.
 
 ### Changed
+- Hardened HTTP server timeouts (`ReadHeaderTimeout`, `ReadTimeout`, `WriteTimeout`, `IdleTimeout`), wired `STORAGE_TYPE` (`redis` vs. `memory`) strategy selection and `Dependencies.Close()` resource cleanup in `internal/infra/di`, simplified `app.Start()` to a single `signal.NotifyContext` with `log/slog` structured logging and graceful shutdown, allowed optional `token_ttl: 0` in `POST /api-key` (falling back to `DEFAULT_TOKEN_TTL`), and removed `internal/infra/http/handler/` and `internal/infra/http/routes/` from `.golangci.yml` temporary exclusions.
 - Refactored `RateLimitMiddleware` (`internal/infra/http/middleware`) to propagate `r.Context()`, inject `*slog.Logger` without logging raw `API_KEY` tokens, translate comments/tests to English, expand table-driven unit tests (`97.6%` package coverage), and remove `internal/infra/http/middleware/` from `.golangci.yml` temporary exclusions.
 - Migrated `MockRateLimiterUseCase` generation from Mockery v2 `//go:generate` directives to Mockery v3 (`NewMockRateLimiterUseCase(t)` + `.EXPECT()`), and updated `internal/infra/http/middleware/ratelimit_test.go` accordingly.
 - Refactored `RateLimiterUseCase` (`internal/business/usecase`) to propagate `context.Context`, inject `*slog.Logger` and `RateLimiterConfig` (`EnableTokenLimiting`, `DefaultTokenTTL`), return `*entity.RateLimitDecision`, update `MockRateLimiterUseCase`, add table-driven unit tests (`>= 85%` package coverage), and remove `internal/business/` from `.golangci.yml` temporary exclusions.
