@@ -11,6 +11,7 @@ rate-limiter
 # Test and coverage artifacts
 coverage*.out
 coverage*.html
+coverage*.tmp
 *.cov
 *.test
 
