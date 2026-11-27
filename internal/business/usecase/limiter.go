@@ -1,5 +1,3 @@
-//go:generate mockery --dir=. --output=./mock --name=RateLimiterUseCase --structname=MockRateLimiterUseCase --outpkg=mock --filename=rate_limiter_use_case.go --disable-version-string
-
 // Package usecase orchestrates rate-limiting policies and API token lifecycle rules.
 package usecase
 

@@ -1,4 +1,3 @@
-//go:generate mockery --dir=. --output=./mock --name=RateLimiterUseCase --structname=MockRateLimiterUseCase --outpkg=mock --filename=rate_limiter_use_case.go --disable-version-string
 package middleware
 
 import (
@@ -17,15 +16,13 @@ import (
 // === Helpers ===
 
 func newTestMiddleware(allow bool, reason string, err error, expectedIP string, t *testing.T) RateLimitMiddleware {
-	limiter := &usecaseMock.MockRateLimiterUseCase{}
+	limiter := usecaseMock.NewMockRateLimiterUseCase(t)
 	decision := &entity.RateLimitDecision{
 		Allowed: allow,
 		Reason:  reason,
 	}
-	limiter.On("AllowRequest", mock.Anything, expectedIP, mock.Anything, mock.Anything).Return(decision, err)
-	mw := NewRateLimitMiddleware(limiter)
-	t.Cleanup(func() { limiter.AssertExpectations(t) })
-	return mw
+	limiter.EXPECT().AllowRequest(mock.Anything, expectedIP, mock.Anything, mock.Anything).Return(decision, err)
+	return NewRateLimitMiddleware(limiter)
 }
 
 func newRequest(ip string, xForwardedFor ...string) *stdhttp.Request {
