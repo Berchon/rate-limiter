@@ -42,12 +42,17 @@ func BuildDependencies(cfg *config.Config) *Dependencies {
 	pong, err := redisClient.Ping(context.Background()).Result()
 	log.Printf("Redis test ping: %s (err=%v)", pong, err)
 
-	// 	// --- UseCases ---
+	// --- UseCases ---
 	rateLimiterUC := usecase.NewRateLimiterUseCase(
 		store,
-		cfg.RateByIPMaxRequests,
-		cfg.RateByIPTimeWindow,
-		cfg.RateByIPBlockedDuration,
+		usecase.RateLimiterConfig{
+			IPMaxRequests:       cfg.RateByIPMaxRequests,
+			IPTimeWindowSec:     cfg.RateByIPTimeWindow,
+			IPBlockedDuration:   cfg.RateByIPBlockedDuration,
+			EnableTokenLimiting: cfg.EnableTokenLimiting,
+			DefaultTokenTTL:     cfg.DefaultTokenTTL,
+		},
+		nil,
 	)
 
 	// --- Handlers ---

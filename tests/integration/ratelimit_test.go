@@ -40,9 +40,14 @@ func setup(t *testing.T) (*miniredis.Miniredis, http.Handler, http.Handler) {
 
 	rlUseCase := usecase.NewRateLimiterUseCase(
 		store,
-		cfg.RateByIPMaxRequests,
-		cfg.RateByIPTimeWindow,
-		cfg.RateByIPBlockedDuration,
+		usecase.RateLimiterConfig{
+			IPMaxRequests:       cfg.RateByIPMaxRequests,
+			IPTimeWindowSec:     cfg.RateByIPTimeWindow,
+			IPBlockedDuration:   cfg.RateByIPBlockedDuration,
+			EnableTokenLimiting: cfg.EnableTokenLimiting,
+			DefaultTokenTTL:     cfg.DefaultTokenTTL,
+		},
+		nil,
 	)
 
 	rateLimiter := middleware.NewRateLimitMiddleware(rlUseCase)

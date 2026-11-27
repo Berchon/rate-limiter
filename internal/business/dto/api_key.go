@@ -1,3 +1,4 @@
+// Package dto defines data transfer objects for API key HTTP payloads.
 package dto
 
 // CreateAPIKeyRequest represents the payload for creating a rate-limited API token.

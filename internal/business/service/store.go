@@ -1,3 +1,4 @@
+// Package service defines domain service and storage contracts for rate limiting.
 package service
 
 import (

@@ -1,3 +1,4 @@
+// Package entity defines core domain entities for rate limiting.
 package entity
 
 import "fmt"
