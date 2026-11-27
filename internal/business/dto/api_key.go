@@ -1,19 +1,20 @@
+// Package dto defines data transfer objects for API key HTTP payloads.
 package dto
 
-// CreateAPIKeyRequest representa o payload para criar um token de rate limiter.
+// CreateAPIKeyRequest represents the payload for creating a rate-limited API token.
 type CreateAPIKeyRequest struct {
-	TimeWindow      int `json:"time_window"`      // tempo em segundos considerado para calcular o limite de requisições
-	MaxRequests     int `json:"max_requests"`     // número máximo de requisições
-	BlockedDuration int `json:"blocked_duration"` // duração do bloqueio em segundos
-	TokenTTL        int `json:"token_ttl"`        // tempo de vida do token em segundos
+	TimeWindow      int `json:"time_window"`      // Window duration in seconds for counting requests
+	MaxRequests     int `json:"max_requests"`     // Maximum number of requests allowed per window
+	BlockedDuration int `json:"blocked_duration"` // Duration in seconds to block the key when exceeded
+	TokenTTL        int `json:"token_ttl"`        // Token time-to-live in seconds
 }
 
-// CreateAPIKeyResponse representa a resposta com o token gerado.
+// CreateAPIKeyResponse represents the response returned after creating an API token.
 type CreateAPIKeyResponse struct {
 	Token           string `json:"token"`
-	TimeWindow      int    `json:"time_window"`      // tempo em segundos considerado para calcular o limite de requisições
-	MaxRequests     int    `json:"max_requests"`     // número máximo de requisições
-	BlockedDuration int    `json:"blocked_duration"` // duração do bloqueio em segundos
-	CreatedAt       string `json:"created_at"`       // timestamp de criação em RFC3339
-	ExpiresAt       string `json:"expires_at"`       // timestamp com o horário de expiração do token em RFC3339
+	TimeWindow      int    `json:"time_window"`      // Window duration in seconds for counting requests
+	MaxRequests     int    `json:"max_requests"`     // Maximum number of requests allowed per window
+	BlockedDuration int    `json:"blocked_duration"` // Duration in seconds to block the key when exceeded
+	CreatedAt       string `json:"created_at"`       // Creation timestamp in RFC3339 format
+	ExpiresAt       string `json:"expires_at"`       // Expiration timestamp in RFC3339 format
 }

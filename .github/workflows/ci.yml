@@ -45,6 +45,11 @@ jobs:
         with:
           version: latest
 
+      - name: Check mocks are up to date
+        run: |
+          make mocks
+          git diff --exit-code internal/business/usecase/mock
+
   unit-tests:
     name: Unit Tests
     runs-on: ubuntu-latest

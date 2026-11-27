@@ -3,10 +3,13 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"log"
+	"io"
+	"log/slog"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -15,76 +18,159 @@ import (
 	httpInfra "github.com/Berchon/rate-limiter/internal/infra/http"
 )
 
-// App defines the application lifecycle.
+const defaultShutdownTimeout = 10 * time.Second
+
+// App defines the application lifecycle operations.
 type App interface {
-	Start()
+	Start() error
+	Run(ctx context.Context) error
 	Stop(ctx context.Context) error
 }
 
 type app struct {
-	cfg    *config.Config
-	server httpInfra.Server
+	cfg             *config.Config
+	server          httpInfra.Server
+	closer          io.Closer
+	logger          *slog.Logger
+	shutdownTimeout time.Duration
+
+	closeOnce sync.Once
+	closeErr  error
 }
 
-// NewApp creates and wires a new application instance.
-func NewApp() App {
-	// Carrega configuração
-	// cfgService := config.NewConfigService()
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		log.Fatalf("❌ failed to load config: %v", err)
+// NewApp loads configuration, wires dependencies, and returns an initialized App instance.
+func NewApp() (App, error) {
+	return NewAppWithLogger(slog.Default())
+}
+
+// NewAppWithLogger loads configuration, wires dependencies with the provided logger, and returns an App instance.
+func NewAppWithLogger(logger *slog.Logger) (App, error) {
+	if logger == nil {
+		logger = slog.Default()
 	}
 
-	// 1️⃣ Constrói dependências
-	deps := di.BuildDependencies(cfg)
+	cfg, err := config.LoadConfigWithLogger(logger)
+	if err != nil {
+		return nil, fmt.Errorf("loading configuration: %w", err)
+	}
 
-	// 2️⃣ Cria o servidor com config e dependências
-	srv := httpInfra.NewServer(cfg, deps)
+	deps, err := di.BuildDependencies(cfg, logger)
+	if err != nil {
+		return nil, fmt.Errorf("building dependencies: %w", err)
+	}
+
+	srv := httpInfra.NewServer(cfg, deps, logger)
+
+	return NewAppWithComponents(cfg, srv, deps, logger), nil
+}
+
+// NewAppWithComponents constructs an App from explicit components, facilitating dependency injection and testing.
+func NewAppWithComponents(cfg *config.Config, srv httpInfra.Server, closer io.Closer, logger *slog.Logger) App {
+	if logger == nil {
+		logger = slog.Default()
+	}
 
 	return &app{
-		cfg:    cfg,
-		server: srv,
+		cfg:             cfg,
+		server:          srv,
+		closer:          closer,
+		logger:          logger,
+		shutdownTimeout: defaultShutdownTimeout,
 	}
 }
 
-// Start inicia o servidor e aguarda sinais de shutdown
-func (a *app) Start() {
+// Start runs the application until SIGINT or SIGTERM is received and performs a graceful shutdown.
+func (a *app) Start() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-	defer signal.Stop(sigCh)
+	return a.Run(ctx)
+}
 
-	// Inicia servidor
-	go func() {
-		log.Printf("🚀 Starting server on %s", a.cfg.Port)
-		if err := a.server.Start(); err != nil {
-			if err.Error() != "http: Server closed" {
-				log.Fatalf("💥 Server error: %v", err)
-			}
-		}
-	}()
+// Run starts the HTTP server and blocks until ctx is canceled or the server exits.
+func (a *app) Run(ctx context.Context) error {
+	serverErrCh := a.startServerAsync()
 
 	select {
+	case err := <-serverErrCh:
+		return a.handleEarlyServerExit(err)
 	case <-ctx.Done():
-		log.Println("🛑 Graceful shutdown initiated (SIGINT or SIGTERM received).")
-	case <-sigCh:
-		log.Println("⚠️ Force shutdown (second signal received).")
-		os.Exit(1)
-	}
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	if err := a.Stop(shutdownCtx); err != nil {
-		log.Printf("⏳ Error during server shutdown: %v", err)
-	} else {
-		log.Println("✅ Server stopped successfully")
+		return a.shutdownGracefully(serverErrCh)
 	}
 }
 
+// Stop gracefully shuts down the HTTP server and closes external dependencies.
 func (a *app) Stop(ctx context.Context) error {
-	fmt.Println("Stopping application...")
-	return a.server.Stop(ctx)
+	a.logger.Info("stopping application")
+
+	srvErr := a.server.Stop(ctx)
+	closeErr := a.closeResources()
+
+	return errors.Join(srvErr, closeErr)
+}
+
+func (a *app) startServerAsync() <-chan error {
+	errCh := make(chan error, 1)
+
+	go func() {
+		a.logger.Info("starting application", "port", a.configuredPort())
+		errCh <- a.server.Start()
+	}()
+
+	return errCh
+}
+
+func (a *app) handleEarlyServerExit(serverErr error) error {
+	if serverErr != nil {
+		a.logger.Error("http server stopped with error", "error", serverErr)
+	}
+
+	return errors.Join(serverErr, a.closeResources())
+}
+
+func (a *app) shutdownGracefully(serverErrCh <-chan error) error {
+	a.logger.Info("graceful shutdown initiated")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), a.shutdownTimeout)
+	defer cancel()
+
+	stopErr := a.Stop(shutdownCtx)
+	serverErr := <-serverErrCh
+
+	a.logShutdownOutcome(stopErr, serverErr)
+
+	return errors.Join(stopErr, serverErr)
+}
+
+func (a *app) logShutdownOutcome(stopErr, serverErr error) {
+	if stopErr != nil || serverErr != nil {
+		a.logger.Error("application shutdown completed with errors",
+			"stop_error", stopErr,
+			"server_error", serverErr,
+		)
+		return
+	}
+
+	a.logger.Info("application stopped successfully")
+}
+
+func (a *app) configuredPort() string {
+	if a.cfg == nil {
+		return ""
+	}
+	return a.cfg.Port
+}
+
+func (a *app) closeResources() error {
+	if a.closer == nil {
+		return nil
+	}
+
+	a.closeOnce.Do(func() {
+		if err := a.closer.Close(); err != nil {
+			a.closeErr = fmt.Errorf("closing application dependencies: %w", err)
+		}
+	})
+
+	return a.closeErr
 }

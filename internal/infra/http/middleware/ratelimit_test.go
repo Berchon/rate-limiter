@@ -1,103 +1,231 @@
-//go:generate mockery --dir=. --output=./mock --name=RateLimiterUseCase --structname=MockRateLimiterUseCase --outpkg=mock --filename=rate_limiter_use_case.go --disable-version-string
-
 package middleware
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"io"
+	"log/slog"
 	stdhttp "net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
+	"github.com/Berchon/rate-limiter/internal/business/entity"
 	usecaseMock "github.com/Berchon/rate-limiter/internal/business/usecase/mock"
 )
 
-// === Helpers ===
+const expectedExceededError = "you have reached the maximum number of requests or actions allowed within a certain time frame"
 
-func newTestMiddleware(allow bool, reason string, err error, expectedIP string, t *testing.T) RateLimitMiddleware {
-	limiter := &usecaseMock.MockRateLimiterUseCase{}
-	limiter.On("AllowRequest", expectedIP, mock.Anything, mock.Anything).Return(allow, reason, 0, 0, err)
-	mw := NewRateLimitMiddleware(limiter)
-	t.Cleanup(func() { limiter.AssertExpectations(t) })
-	return mw
-}
-
-func newRequest(ip string, xForwardedFor ...string) *stdhttp.Request {
-	req := httptest.NewRequest("GET", "/", nil)
-	req.RemoteAddr = ip
-	if len(xForwardedFor) > 0 {
-		req.Header.Set("X-Forwarded-For", xForwardedFor[0])
-	}
-	return req
-}
-
-func execute(mw RateLimitMiddleware, req *stdhttp.Request) (*httptest.ResponseRecorder, string) {
+func executeMiddlewareRequest(mw RateLimitMiddleware, req *stdhttp.Request) (*httptest.ResponseRecorder, string, bool) {
 	rr := httptest.NewRecorder()
-	mw.Handle(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	nextCalled := false
+	mw.Handle(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, _ *stdhttp.Request) {
+		nextCalled = true
 		w.WriteHeader(stdhttp.StatusOK)
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	})).ServeHTTP(rr, req)
-	body, _ := io.ReadAll(rr.Body)
-	return rr, string(body)
-}
 
-// === Testes ===
+	body, _ := io.ReadAll(rr.Body)
+	return rr, string(body), nextCalled
+}
 
 func TestRateLimitMiddleware_Handle(t *testing.T) {
+	type contextKey string
+	const traceKey contextKey = "trace_id"
 
-	t.Run("should call next handler when request is allowed", func(t *testing.T) {
-		mw := newTestMiddleware(true, "allowed", nil, "1.2.3.4", t)
-		req := newRequest("1.2.3.4")
-		rr, body := execute(mw, req)
+	tests := []struct {
+		name               string
+		remoteAddr         string
+		xForwardedFor      string
+		apiKey             string
+		expectedIP         string
+		expectedToken      string
+		decision           *entity.RateLimitDecision
+		limiterErr         error
+		wantStatus         int
+		wantNextCalled     bool
+		wantBody           string
+		wantErrorJSON      bool
+		wantLimitHeader    string
+		wantRemainHeader   string
+		wantResetHeader    string
+		wantRetryAfter     string
+		wantRetryAfterSeen bool
+		nilLogger          bool
+	}{
+		{
+			name:             "allows request and sets standard rate-limit headers",
+			remoteAddr:       "1.2.3.4:12345",
+			apiKey:           "secret-token-123",
+			expectedIP:       "1.2.3.4",
+			expectedToken:    "secret-token-123",
+			decision:         &entity.RateLimitDecision{Allowed: true, Limit: 100, Remaining: 99, ResetSeconds: 60, Reason: "allowed"},
+			wantStatus:       stdhttp.StatusOK,
+			wantNextCalled:   true,
+			wantBody:         "ok",
+			wantLimitHeader:  "100",
+			wantRemainHeader: "99",
+			wantResetHeader:  "60",
+		},
+		{
+			name:               "blocks request with 429, rate-limit headers, Retry-After, and exact JSON error",
+			remoteAddr:         "1.2.3.4:12345",
+			expectedIP:         "1.2.3.4",
+			decision:           &entity.RateLimitDecision{Allowed: false, Limit: 10, Remaining: 0, ResetSeconds: 30, RetryAfterSeconds: 300, Reason: "rate limit exceeded"},
+			wantStatus:         stdhttp.StatusTooManyRequests,
+			wantErrorJSON:      true,
+			wantLimitHeader:    "10",
+			wantRemainHeader:   "0",
+			wantResetHeader:    "30",
+			wantRetryAfter:     "300",
+			wantRetryAfterSeen: true,
+		},
+		{
+			name:               "blocks request without Retry-After when RetryAfterSeconds is zero",
+			remoteAddr:         "1.2.3.4:12345",
+			expectedIP:         "1.2.3.4",
+			decision:           &entity.RateLimitDecision{Allowed: false, Limit: 10, Remaining: 0, ResetSeconds: 15, RetryAfterSeconds: 0, Reason: "blocked"},
+			wantStatus:         stdhttp.StatusTooManyRequests,
+			wantErrorJSON:      true,
+			wantLimitHeader:    "10",
+			wantRemainHeader:   "0",
+			wantResetHeader:    "15",
+			wantRetryAfterSeen: false,
+		},
+		{
+			name:          "returns 429 fail-closed when limiter returns error",
+			remoteAddr:    "1.2.3.4:12345",
+			expectedIP:    "1.2.3.4",
+			limiterErr:    assert.AnError,
+			wantStatus:    stdhttp.StatusTooManyRequests,
+			wantErrorJSON: true,
+		},
+		{
+			name:          "returns 429 fail-closed when limiter returns nil decision",
+			remoteAddr:    "1.2.3.4:12345",
+			expectedIP:    "1.2.3.4",
+			decision:      nil,
+			wantStatus:    stdhttp.StatusTooManyRequests,
+			wantErrorJSON: true,
+		},
+		{
+			name:             "extracts and trims first valid IP from X-Forwarded-For",
+			remoteAddr:       "10.0.0.1:8080",
+			xForwardedFor:    "  5.6.7.8  , 9.10.11.12",
+			expectedIP:       "5.6.7.8",
+			decision:         &entity.RateLimitDecision{Allowed: true, Limit: 5, Remaining: 4, ResetSeconds: 1},
+			wantStatus:       stdhttp.StatusOK,
+			wantNextCalled:   true,
+			wantBody:         "ok",
+			wantLimitHeader:  "5",
+			wantRemainHeader: "4",
+			wantResetHeader:  "1",
+		},
+		{
+			name:             "falls back to RemoteAddr when X-Forwarded-For is invalid",
+			remoteAddr:       "10.0.0.1:8080",
+			xForwardedFor:    "not-an-ip, 9.10.11.12",
+			expectedIP:       "10.0.0.1",
+			decision:         &entity.RateLimitDecision{Allowed: true, Limit: 5, Remaining: 4, ResetSeconds: 1},
+			wantStatus:       stdhttp.StatusOK,
+			wantNextCalled:   true,
+			wantBody:         "ok",
+			wantLimitHeader:  "5",
+			wantRemainHeader: "4",
+			wantResetHeader:  "1",
+		},
+		{
+			name:             "extracts IPv6 address from RemoteAddr with port",
+			remoteAddr:       "[::1]:54321",
+			expectedIP:       "::1",
+			decision:         &entity.RateLimitDecision{Allowed: true, Limit: 5, Remaining: 4, ResetSeconds: 1},
+			wantStatus:       stdhttp.StatusOK,
+			wantNextCalled:   true,
+			wantBody:         "ok",
+			wantLimitHeader:  "5",
+			wantRemainHeader: "4",
+			wantResetHeader:  "1",
+		},
+		{
+			name:             "handles RemoteAddr without port gracefully",
+			remoteAddr:       "malformed",
+			expectedIP:       "malformed",
+			decision:         &entity.RateLimitDecision{Allowed: true, Limit: 5, Remaining: 4, ResetSeconds: 1},
+			wantStatus:       stdhttp.StatusOK,
+			wantNextCalled:   true,
+			wantBody:         "ok",
+			wantLimitHeader:  "5",
+			wantRemainHeader: "4",
+			wantResetHeader:  "1",
+			nilLogger:        true,
+		},
+	}
 
-		assert.Equal(t, stdhttp.StatusOK, rr.Code)
-		assert.Contains(t, body, "ok")
-	})
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var logBuf bytes.Buffer
+			var logger *slog.Logger
+			if !tc.nilLogger {
+				logger = slog.New(slog.NewJSONHandler(&logBuf, nil))
+			}
 
-	t.Run("should return 429 when request is blocked", func(t *testing.T) {
-		mw := newTestMiddleware(false, "rate_limited", nil, "1.2.3.4", t)
-		req := newRequest("1.2.3.4")
-		rr, body := execute(mw, req)
+			limiter := usecaseMock.NewMockRateLimiterUseCase(t)
+			limiter.EXPECT().
+				AllowRequest(
+					mock.MatchedBy(func(ctx context.Context) bool {
+						return ctx.Value(traceKey) == "req-123"
+					}),
+					tc.expectedIP,
+					tc.expectedToken,
+					mock.Anything,
+				).
+				Return(tc.decision, tc.limiterErr)
 
-		assert.Equal(t, stdhttp.StatusTooManyRequests, rr.Code)
-		assert.Contains(t, body, `"error"`)
-	})
+			mw := NewRateLimitMiddleware(limiter, logger)
 
-	t.Run("should return 429 when limiter returns error", func(t *testing.T) {
-		mw := newTestMiddleware(false, "internal_error", assert.AnError, "1.2.3.4", t)
-		req := newRequest("1.2.3.4")
-		rr, body := execute(mw, req)
+			req := httptest.NewRequest(stdhttp.MethodGet, "/protected", nil)
+			req = req.WithContext(context.WithValue(req.Context(), traceKey, "req-123"))
+			req.RemoteAddr = tc.remoteAddr
+			if tc.xForwardedFor != "" {
+				req.Header.Set("X-Forwarded-For", tc.xForwardedFor)
+			}
+			if tc.apiKey != "" {
+				req.Header.Set("API_KEY", tc.apiKey)
+			}
 
-		assert.Equal(t, stdhttp.StatusTooManyRequests, rr.Code)
-		assert.Contains(t, body, `"error"`)
-	})
+			rr, body, nextCalled := executeMiddlewareRequest(mw, req)
 
-	t.Run("should extract client IP from X-Forwarded-For when present", func(t *testing.T) {
-		mw := newTestMiddleware(true, "allowed", nil, "5.6.7.8", t)
-		req := newRequest("1.2.3.4", "5.6.7.8, 9.10.11.12")
-		rr, body := execute(mw, req)
+			require.Equal(t, tc.wantStatus, rr.Code)
+			assert.Equal(t, tc.wantNextCalled, nextCalled)
 
-		assert.Equal(t, stdhttp.StatusOK, rr.Code)
-		assert.Contains(t, body, "ok")
-	})
+			if tc.wantBody != "" {
+				assert.Equal(t, tc.wantBody, body)
+			}
 
-	t.Run("should fallback to RemoteAddr when X-Forwarded-For is absent", func(t *testing.T) {
-		mw := newTestMiddleware(true, "allowed", nil, "1.2.3.4", t)
-		req := newRequest("1.2.3.4")
-		rr, body := execute(mw, req)
+			if tc.wantErrorJSON {
+				assert.Equal(t, "application/json", rr.Header().Get("Content-Type"))
+				var payload map[string]string
+				require.NoError(t, json.Unmarshal([]byte(body), &payload))
+				assert.Equal(t, expectedExceededError, payload["error"])
+			}
 
-		assert.Equal(t, stdhttp.StatusOK, rr.Code)
-		assert.Contains(t, body, "ok")
-	})
+			assert.Equal(t, tc.wantLimitHeader, rr.Header().Get("X-RateLimit-Limit"))
+			assert.Equal(t, tc.wantRemainHeader, rr.Header().Get("X-RateLimit-Remaining"))
+			assert.Equal(t, tc.wantResetHeader, rr.Header().Get("X-RateLimit-Reset"))
 
-	t.Run("should handle malformed RemoteAddr gracefully", func(t *testing.T) {
-		mw := newTestMiddleware(true, "allowed", nil, "malformed", t)
-		req := newRequest("malformed")
-		rr, body := execute(mw, req)
+			if tc.wantRetryAfterSeen {
+				assert.Equal(t, tc.wantRetryAfter, rr.Header().Get("Retry-After"))
+			} else {
+				assert.Empty(t, rr.Header().Get("Retry-After"))
+			}
 
-		assert.Equal(t, stdhttp.StatusOK, rr.Code)
-		assert.Contains(t, body, "ok")
-	})
+			if tc.apiKey != "" && !tc.nilLogger {
+				assert.NotContains(t, logBuf.String(), tc.apiKey)
+			}
+		})
+	}
 }

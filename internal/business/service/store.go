@@ -1,36 +1,43 @@
+// Package service defines domain service and storage contracts for rate limiting.
 package service
 
-import "github.com/Berchon/rate-limiter/internal/business/entity"
+import (
+	"context"
 
-// LimiterStore define a interface de persistência para o rate limiter
+	"github.com/Berchon/rate-limiter/internal/business/entity"
+)
+
+// AddRequestResult represents the typed outcome of recording a request in the store.
+type AddRequestResult struct {
+	Allowed           bool
+	Remaining         int
+	ResetSeconds      int64
+	RetryAfterSeconds int
+}
+
+// BlockStatus represents whether a key is currently blocked and its remaining block duration.
+type BlockStatus struct {
+	Blocked          bool
+	RemainingSeconds int
+}
+
+// LimiterStore defines the persistence contract for the rate limiter.
 type LimiterStore interface {
-	// SaveTokenConfig salva a configuração do token no Redis com TTL (TimeWindowSeconds)
-	SaveTokenConfig(cfg *entity.TokenConfig) error
+	// SaveTokenConfig persists a token configuration with its configured TTL.
+	SaveTokenConfig(ctx context.Context, cfg *entity.TokenConfig) error
 
-	// AddRequest registra uma requisição e retorna se é permitida, quantas restam e possível erro
-	// Recebe maxRequests, timeWindowSec e blockedDuration para controle correto do rate limiter
-	AddRequest(key entity.LimiterKey, timestamp int64, maxRequests int, timeWindowSec int, blockedDuration int) (allowed bool, remaining int, err error)
+	// AddRequest records a request for the key and returns the typed rate-limit check result.
+	AddRequest(ctx context.Context, key entity.LimiterKey, timestamp int64, maxRequests, timeWindowSec, blockedDuration int) (AddRequestResult, error)
 
-	// GetConfigByToken retorna a configuração do token, ou nil se não existir (token expirado)
-	GetConfigByToken(token string) (*entity.TokenConfig, error)
+	// GetConfigByToken returns the token configuration, or nil if it does not exist or has expired.
+	GetConfigByToken(ctx context.Context, token string) (*entity.TokenConfig, error)
 
-	// Block bloqueia explicitamente a chave por durationSec segundos
-	Block(key entity.LimiterKey, durationSec int) error
+	// Block explicitly blocks the key for durationSec seconds.
+	Block(ctx context.Context, key entity.LimiterKey, durationSec int) error
 
-	// IsBlocked verifica se a chave está bloqueada e quanto tempo resta
-	IsBlocked(key entity.LimiterKey) (blocked bool, remainingBlockSeconds int, err error)
+	// IsBlocked checks whether the key is currently blocked and returns the remaining block time.
+	IsBlocked(ctx context.Context, key entity.LimiterKey) (BlockStatus, error)
 
-	// ResetKey reseta o contador e estado da chave (útil para testes)
-	ResetKey(key entity.LimiterKey) error
-}
-
-// LimiterStoreConfig contém dependências/configurações da implementação concreta
-type LimiterStoreConfig struct {
-	// Exemplo: Redis host, porta, senha, etc.
-}
-
-// NewLimiterStore constrói a implementação concreta de LimiterStore
-// (por enquanto retorna nil, será implementado no RedisStore)
-func NewLimiterStore(cfg *LimiterStoreConfig) LimiterStore {
-	return nil
+	// ResetKey clears counters, block state, and stored configuration for the key.
+	ResetKey(ctx context.Context, key entity.LimiterKey) error
 }
