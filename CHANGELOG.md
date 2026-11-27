@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-27
+
 ### Added
 - End-to-end integration test suite (`86.5%` coverage of `./internal/...`) covering both `redis` (`miniredis`) and `memory` strategies, HTTP rate-limit headers, token precedence/fallback, lifecycle/graceful shutdown, unreachable Redis startup resilience, store contract, and concurrent bursts (`tests/integration/`).
 - Unit test suites (`>= 85%` package coverage) for `internal/infra/http/handler`, `internal/infra/http/routes`, `internal/infra/http`, `internal/infra/di`, and `internal/infra/app`.
