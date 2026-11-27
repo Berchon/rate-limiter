@@ -1,47 +1,52 @@
 package handler
 
-import "net/http"
+import (
+	"log/slog"
+	"net/http"
+)
 
+// GetHealthHandler handles health check requests.
 type GetHealthHandler interface {
-	HttpHandler
+	HTTPHandler
 }
 
 type getHealthHandler struct {
 	response *ResponseHandler
 }
 
-type status struct {
+type statusResponse struct {
 	Status string `json:"status"`
 }
 
-func NewGetHealthHandler() GetHealthHandler {
-	response := NewResponseHandler()
+// NewGetHealthHandler creates a new GetHealthHandler with the provided logger.
+func NewGetHealthHandler(logger *slog.Logger) GetHealthHandler {
 	return &getHealthHandler{
-		response: response,
+		response: NewResponseHandler(logger),
 	}
 }
 
+// Handle responds with the service health status.
 func (h *getHealthHandler) Handle(w http.ResponseWriter, r *http.Request) {
-	status := status{Status: "Healthy"}
-	h.response.RequestResponse(w, r, status, http.StatusOK)
+	h.response.RequestResponse(w, r, statusResponse{Status: "Healthy"}, http.StatusOK)
 }
 
+// GetPingHandler handles ping liveness requests.
 type GetPingHandler interface {
-	HttpHandler
+	HTTPHandler
 }
 
 type getPingHandler struct {
 	response *ResponseHandler
 }
 
-func NewGetPingHandler() GetPingHandler {
-	response := NewResponseHandler()
+// NewGetPingHandler creates a new GetPingHandler with the provided logger.
+func NewGetPingHandler(logger *slog.Logger) GetPingHandler {
 	return &getPingHandler{
-		response: response,
+		response: NewResponseHandler(logger),
 	}
 }
 
+// Handle responds with a Pong status payload.
 func (h *getPingHandler) Handle(w http.ResponseWriter, r *http.Request) {
-	status := status{Status: "Pong"}
-	h.response.RequestResponse(w, r, status, http.StatusOK)
+	h.response.RequestResponse(w, r, statusResponse{Status: "Pong"}, http.StatusOK)
 }
