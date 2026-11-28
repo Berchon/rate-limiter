@@ -28,6 +28,7 @@ services:
     environment:
       PORT: ${PORT:-8080}
       STORAGE_TYPE: ${STORAGE_TYPE:-redis}
+      RATE_LIMIT_ALGORITHM: ${RATE_LIMIT_ALGORITHM:-fixed_window}
       REDIS_URL: redis://redis:6379/0
       RATE_BY_IP_TIME_WINDOW: ${RATE_BY_IP_TIME_WINDOW:-5}
       RATE_BY_IP_MAX_REQUESTS: ${RATE_BY_IP_MAX_REQUESTS:-2}

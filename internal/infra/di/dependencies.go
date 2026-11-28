@@ -31,7 +31,8 @@ type Dependencies struct {
 	closer io.Closer
 }
 
-// BuildDependencies initializes storage according to STORAGE_TYPE, use cases, handlers, and middleware.
+// BuildDependencies initializes storage according to STORAGE_TYPE and RATE_LIMIT_ALGORITHM,
+// along with use cases, handlers, and middleware.
 func BuildDependencies(cfg *config.Config, logger *slog.Logger) (*Dependencies, error) {
 	logger = resolveLogger(logger)
 
@@ -94,22 +95,42 @@ func wireHTTPDependencies(rateLimiterUC usecase.RateLimiterUseCase, failOpen boo
 }
 
 func buildStore(ctx context.Context, cfg *config.Config, logger *slog.Logger) (service.LimiterStore, io.Closer, error) {
+	alg, err := resolveAlgorithm(cfg.RateLimitAlgorithm)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	switch cfg.StorageType {
 	case config.StorageTypeMemory:
-		return buildInMemoryStore(logger), nil, nil
+		return buildInMemoryStore(alg, logger)
 	case config.StorageTypeRedis:
-		return buildRedisStore(ctx, cfg.RedisURL, logger)
+		return buildRedisStore(ctx, cfg.RedisURL, alg, logger)
 	default:
 		return nil, nil, fmt.Errorf("unsupported storage type %q", cfg.StorageType)
 	}
 }
 
-func buildInMemoryStore(logger *slog.Logger) service.LimiterStore {
-	logger.Info("using in-memory storage backend")
-	return storage.NewInMemoryStore()
+func resolveAlgorithm(raw string) (service.Algorithm, error) {
+	switch raw {
+	case "", config.AlgorithmFixedWindow:
+		return service.AlgorithmFixedWindow, nil
+	case config.AlgorithmSlidingWindow:
+		return service.AlgorithmSlidingWindow, nil
+	default:
+		return "", fmt.Errorf("unsupported rate-limit algorithm %q", raw)
+	}
 }
 
-func buildRedisStore(ctx context.Context, rawRedisURL string, logger *slog.Logger) (service.LimiterStore, io.Closer, error) {
+func buildInMemoryStore(alg service.Algorithm, logger *slog.Logger) (service.LimiterStore, io.Closer, error) {
+	logger.Info("using in-memory storage backend", "algorithm", string(alg))
+	store, err := storage.NewInMemoryStoreWithAlgorithm(alg)
+	if err != nil {
+		return nil, nil, err
+	}
+	return store, nil, nil
+}
+
+func buildRedisStore(ctx context.Context, rawRedisURL string, alg service.Algorithm, logger *slog.Logger) (service.LimiterStore, io.Closer, error) {
 	redisOpts, err := redis.ParseURL(rawRedisURL)
 	if err != nil {
 		return nil, nil, errors.New("invalid REDIS_URL: check scheme (redis:// or rediss://) and URI format")
@@ -119,12 +140,19 @@ func buildRedisStore(ctx context.Context, rawRedisURL string, logger *slog.Logge
 	logger.Info("connecting to redis storage backend",
 		"redis_url", maskedURL,
 		"addr", redisOpts.Addr,
+		"algorithm", string(alg),
 	)
 
 	redisClient := redis.NewClient(redisOpts)
 	verifyRedisConnection(ctx, redisClient, maskedURL, redisOpts.Addr, logger)
 
-	return redisStore.NewStore(redisClient), redisClient, nil
+	store, err := redisStore.NewStoreWithAlgorithm(redisClient, alg)
+	if err != nil {
+		_ = redisClient.Close()
+		return nil, nil, err
+	}
+
+	return store, redisClient, nil
 }
 
 func verifyRedisConnection(ctx context.Context, client *redis.Client, maskedURL, addr string, logger *slog.Logger) {

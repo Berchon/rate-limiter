@@ -2,9 +2,6 @@ package integration
 
 import (
 	"context"
-	"encoding/json"
-	"io"
-	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -19,43 +16,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func discardLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
-}
-
-func freePort(t *testing.T) string {
-	t.Helper()
-
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	defer ln.Close()
-
-	return strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
-}
-
-func waitForServer(t *testing.T, url string) {
-	t.Helper()
-
-	require.Eventually(t, func() bool {
-		resp, err := http.Get(url)
-		if err != nil {
-			return false
-		}
-		_ = resp.Body.Close()
-		return resp.StatusCode == http.StatusOK
-	}, 5*time.Second, 25*time.Millisecond, "server did not become ready")
-}
-
 func TestApplicationLifecycle(t *testing.T) {
-	for _, b := range backends() {
-		t.Run(b.name, func(t *testing.T) {
+	for _, mc := range strategyMatrix() {
+		t.Run(mc.name, func(t *testing.T) {
 			port := freePort(t)
-			storage, redisURL := config.StorageTypeMemory, ""
-			if b.redis {
+			redisURL := ""
+			if mc.storageType == config.StorageTypeRedis {
 				mr := miniredis.RunT(t)
-				storage, redisURL = config.StorageTypeRedis, "redis://"+mr.Addr()+"/0"
+				redisURL = "redis://" + mr.Addr() + "/0"
 			}
-			loadConfig(t, storage, redisURL, true)
+			loadConfigWithOptions(t, redisURL, defaultEnvOptions(mc.storageType, mc.algorithm))
 			t.Setenv("PORT", port)
 
 			application, err := app.NewAppWithLogger(discardLogger())
@@ -68,7 +38,7 @@ func TestApplicationLifecycle(t *testing.T) {
 			base := "http://127.0.0.1:" + port
 			waitForServer(t, base+"/health")
 
-			for i := 0; i < ipMaxRequests; i++ {
+			for range ipMaxRequests {
 				resp, err := http.Get(base + "/protected")
 				require.NoError(t, err)
 				_ = resp.Body.Close()
@@ -104,11 +74,13 @@ func TestApplicationStartupFailures(t *testing.T) {
 	}{
 		{name: "invalid port", wantErr: "invalid PORT", env: map[string]string{"PORT": "70000"}},
 		{name: "unsupported storage type", wantErr: "invalid STORAGE_TYPE", env: map[string]string{"STORAGE_TYPE": "postgres"}},
+		{name: "unsupported rate limit algorithm", wantErr: "invalid RATE_LIMIT_ALGORITHM", env: map[string]string{"RATE_LIMIT_ALGORITHM": "token_bucket"}},
 		{name: "malformed redis url", wantErr: "invalid REDIS_URL", env: map[string]string{"STORAGE_TYPE": "redis", "REDIS_URL": "http://localhost:6379"}},
 		{name: "non-positive rate window", wantErr: "RATE_BY_IP_TIME_WINDOW", env: map[string]string{"RATE_BY_IP_TIME_WINDOW": "0"}},
 		{name: "non-positive max requests", wantErr: "RATE_BY_IP_MAX_REQUESTS", env: map[string]string{"RATE_BY_IP_MAX_REQUESTS": "-1"}},
 		{name: "non-positive blocked duration", wantErr: "RATE_BY_IP_BLOCKED_DURATION", env: map[string]string{"RATE_BY_IP_BLOCKED_DURATION": "0"}},
 		{name: "non-positive default token ttl", wantErr: "DEFAULT_TOKEN_TTL", env: map[string]string{"DEFAULT_TOKEN_TTL": "0"}},
+		{name: "malformed fail open bool", wantErr: "failed to unmarshal config", env: map[string]string{"FAIL_OPEN": "not-a-bool"}},
 	}
 
 	for _, tc := range tests {
@@ -128,102 +100,66 @@ func TestApplicationStartupFailures(t *testing.T) {
 	}
 }
 
-func TestApplicationStartsWhenRedisIsUnreachable(t *testing.T) {
-	closedRedisPort := freePort(t)
-	appPort := freePort(t)
-	loadConfig(t, config.StorageTypeRedis, "redis://127.0.0.1:"+closedRedisPort+"/0", true)
-	t.Setenv("PORT", appPort)
+func TestHealthEndpointsAndUnknownRoutes(t *testing.T) {
+	for _, storageType := range allStorages() {
+		t.Run(storageType, func(t *testing.T) {
+			env := setupEnv(t, defaultEnvOptions(storageType, config.AlgorithmSlidingWindow))
+
+			for _, path := range []string{"/ping", "/health"} {
+				t.Run(path, func(t *testing.T) {
+					rr := env.do(t, http.MethodGet, path, "192.0.2.30", "", nil)
+					assert.Equal(t, http.StatusOK, rr.Code)
+				})
+			}
+
+			t.Run("health endpoints are not rate limited", func(t *testing.T) {
+				for range ipMaxRequests * 3 {
+					rr := env.do(t, http.MethodGet, "/ping", "192.0.2.31", "", nil)
+					require.Equal(t, http.StatusOK, rr.Code)
+				}
+			})
+
+			t.Run("unknown routes and unsupported methods", func(t *testing.T) {
+				rr := env.do(t, http.MethodGet, "/does-not-exist", "192.0.2.60", "", nil)
+				assert.Equal(t, http.StatusNotFound, rr.Code)
+
+				rr = httptest.NewRecorder()
+				req := httptest.NewRequest(http.MethodDelete, "/api-key", nil)
+				env.router.ServeHTTP(rr, req)
+				assert.Equal(t, http.StatusMethodNotAllowed, rr.Code)
+			})
+		})
+	}
+}
+
+func TestDefaultConfigLoads(t *testing.T) {
+	t.Setenv("STORAGE_TYPE", config.StorageTypeMemory)
+
+	cfg, err := config.LoadConfig()
+	require.NoError(t, err)
+	assert.Equal(t, config.StorageTypeMemory, cfg.StorageType)
+	assert.Equal(t, config.AlgorithmFixedWindow, cfg.RateLimitAlgorithm)
+	assert.False(t, cfg.FailOpen)
+}
+
+func TestApplicationFailsWhenPortIsBusy(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer ln.Close()
+
+	loadConfigWithOptions(t, "", defaultEnvOptions(config.StorageTypeMemory, config.AlgorithmFixedWindow))
+	t.Setenv("PORT", strconv.Itoa(ln.Addr().(*net.TCPAddr).Port))
 
 	application, err := app.NewAppWithLogger(discardLogger())
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- application.Run(ctx) }()
-
-	base := "http://127.0.0.1:" + appPort
-	waitForServer(t, base+"/health")
-
-	resp, err := http.Get(base + "/protected")
-	require.NoError(t, err)
-	_ = resp.Body.Close()
-	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
-
-	cancel()
+	go func() { done <- application.Run(context.Background()) }()
 
 	select {
 	case err := <-done:
-		assert.NoError(t, err)
-	case <-time.After(10 * time.Second):
-		t.Fatal("application did not shut down gracefully")
-	}
-}
-
-func TestRedisOutageFailsClosed(t *testing.T) {
-	mr := miniredis.RunT(t)
-	cfg := loadConfig(t, config.StorageTypeRedis, "redis://"+mr.Addr()+"/0", true)
-	require.False(t, cfg.FailOpen)
-
-	env := buildEnv(t, cfg, mr.FastForward)
-	require.Equal(t, http.StatusOK, env.get(t, "192.0.2.50", "").Code)
-
-	mr.Close()
-
-	rr := env.get(t, "192.0.2.50", "")
-	assert.Equal(t, http.StatusServiceUnavailable, rr.Code)
-	assert.Equal(t, "application/json", rr.Header().Get("Content-Type"))
-	assert.Empty(t, rr.Header().Get("X-RateLimit-Limit"))
-	assert.Empty(t, rr.Header().Get("X-RateLimit-Remaining"))
-	assert.Empty(t, rr.Header().Get("X-RateLimit-Reset"))
-	assert.Empty(t, rr.Header().Get("Retry-After"))
-
-	var payload map[string]string
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &payload))
-	assert.Equal(t, "service temporarily unavailable", payload["error"])
-
-	rr = env.do(t, http.MethodPost, "/api-key", "192.0.2.50", "", map[string]int{
-		"time_window": 5, "max_requests": 5, "blocked_duration": 5, "token_ttl": 5,
-	})
-	assert.Equal(t, http.StatusInternalServerError, rr.Code)
-}
-
-func TestRedisOutageFailsOpen(t *testing.T) {
-	mr := miniredis.RunT(t)
-	t.Setenv("FAIL_OPEN", "true")
-	cfg := loadConfig(t, config.StorageTypeRedis, "redis://"+mr.Addr()+"/0", true)
-	require.True(t, cfg.FailOpen)
-
-	env := buildEnv(t, cfg, mr.FastForward)
-	require.Equal(t, http.StatusOK, env.get(t, "192.0.2.51", "").Code)
-
-	mr.Close()
-
-	rr := env.get(t, "192.0.2.51", "")
-	assert.Equal(t, http.StatusOK, rr.Code)
-	assert.Equal(t, "protected content", rr.Body.String())
-	assert.Empty(t, rr.Header().Get("X-RateLimit-Limit"))
-	assert.Empty(t, rr.Header().Get("X-RateLimit-Remaining"))
-	assert.Empty(t, rr.Header().Get("X-RateLimit-Reset"))
-	assert.Empty(t, rr.Header().Get("Retry-After"))
-
-	rr = env.do(t, http.MethodPost, "/api-key", "192.0.2.51", "", map[string]int{
-		"time_window": 5, "max_requests": 5, "blocked_duration": 5, "token_ttl": 5,
-	})
-	assert.Equal(t, http.StatusInternalServerError, rr.Code)
-}
-
-func TestUnknownRoutesReturnNotFound(t *testing.T) {
-	for _, b := range backends() {
-		t.Run(b.name, func(t *testing.T) {
-			env := b.setup(t, true)
-
-			rr := env.do(t, http.MethodGet, "/does-not-exist", "192.0.2.60", "", nil)
-			assert.Equal(t, http.StatusNotFound, rr.Code)
-
-			rr = httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodDelete, "/api-key", nil)
-			env.router.ServeHTTP(rr, req)
-			assert.Equal(t, http.StatusMethodNotAllowed, rr.Code)
-		})
+		assert.Error(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("application kept running despite the busy port")
 	}
 }

@@ -1,6 +1,24 @@
 package entity
 
-import "time"
+import (
+	"strings"
+	"time"
+)
+
+const tokenKeyPrefix = "token:"
+
+// NormalizeTokenID returns the canonical token identifier by trimming surrounding
+// whitespace and stripping any leading "token:" prefixes idempotently.
+func NormalizeTokenID(token string) string {
+	for {
+		trimmed := strings.TrimSpace(token)
+		stripped, ok := strings.CutPrefix(trimmed, tokenKeyPrefix)
+		if !ok {
+			return trimmed
+		}
+		token = stripped
+	}
+}
 
 // TokenConfig represents the rate-limit configuration for an API token.
 type TokenConfig struct {

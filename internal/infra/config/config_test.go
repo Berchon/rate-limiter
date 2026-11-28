@@ -25,6 +25,7 @@ func TestLoadConfig_DefaultsAndOverrides(t *testing.T) {
 
 		assert.Equal(t, "8080", cfg.Port)
 		assert.Equal(t, config.StorageTypeRedis, cfg.StorageType)
+		assert.Equal(t, config.AlgorithmFixedWindow, cfg.RateLimitAlgorithm)
 		assert.Equal(t, "redis://localhost:6379/0", cfg.RedisURL)
 		assert.Equal(t, 5, cfg.RateByIPTimeWindow)
 		assert.Equal(t, 2, cfg.RateByIPMaxRequests)
@@ -37,12 +38,14 @@ func TestLoadConfig_DefaultsAndOverrides(t *testing.T) {
 		assert.Equal(t, 15*time.Second, cfg.HTTPWriteTimeout)
 		assert.Equal(t, 60*time.Second, cfg.HTTPIdleTimeout)
 		assert.Contains(t, buf.String(), "configuration loaded")
+		assert.Contains(t, buf.String(), "rate_limit_algorithm=fixed_window")
 		assert.Contains(t, buf.String(), "fail_open=false")
 	})
 
 	t.Run("overrides defaults from environment variables and masks redis credentials in logs", func(t *testing.T) {
 		t.Setenv("PORT", "9090")
 		t.Setenv("STORAGE_TYPE", "  MEMORY ")
+		t.Setenv("RATE_LIMIT_ALGORITHM", "  SLIDING_WINDOW ")
 		testPass := "super-secret-value"
 		t.Setenv("REDIS_URL", fmt.Sprintf("rediss://default:%s@redis.example.com:6379/0", testPass))
 		t.Setenv("RATE_BY_IP_TIME_WINDOW", "10")
@@ -64,6 +67,7 @@ func TestLoadConfig_DefaultsAndOverrides(t *testing.T) {
 
 		assert.Equal(t, "9090", cfg.Port)
 		assert.Equal(t, config.StorageTypeMemory, cfg.StorageType)
+		assert.Equal(t, config.AlgorithmSlidingWindow, cfg.RateLimitAlgorithm)
 		assert.Equal(t, 10, cfg.RateByIPTimeWindow)
 		assert.Equal(t, 100, cfg.RateByIPMaxRequests)
 		assert.Equal(t, 120, cfg.RateByIPBlockedDuration)
@@ -78,6 +82,7 @@ func TestLoadConfig_DefaultsAndOverrides(t *testing.T) {
 		logOutput := buf.String()
 		assert.NotContains(t, logOutput, testPass)
 		assert.Contains(t, logOutput, "rediss://redacted@redis.example.com:6379/0")
+		assert.Contains(t, logOutput, "rate_limit_algorithm=sliding_window")
 		assert.Contains(t, logOutput, "fail_open=true")
 	})
 
@@ -99,11 +104,13 @@ func TestLoadConfig_DefaultsAndOverrides(t *testing.T) {
 		tmpDir := t.TempDir()
 		t.Chdir(tmpDir)
 
-		envContent := "PORT=7070\nSTORAGE_TYPE=memory\nRATE_BY_IP_MAX_REQUESTS=50\n"
+		envContent := "PORT=7070\nSTORAGE_TYPE=memory\nRATE_LIMIT_ALGORITHM=fixed_window\nFAIL_OPEN=false\nRATE_BY_IP_MAX_REQUESTS=50\n"
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, ".env"), []byte(envContent), 0o600))
 
-		// Simulate PaaS/Docker environment variable overriding .env value.
+		// Simulate PaaS/Docker environment variables overriding .env values.
 		t.Setenv("PORT", "10000")
+		t.Setenv("RATE_LIMIT_ALGORITHM", "sliding_window")
+		t.Setenv("FAIL_OPEN", "true")
 		t.Cleanup(func() {
 			_ = os.Unsetenv("STORAGE_TYPE")
 			_ = os.Unsetenv("RATE_BY_IP_MAX_REQUESTS")
@@ -117,6 +124,8 @@ func TestLoadConfig_DefaultsAndOverrides(t *testing.T) {
 
 		assert.Equal(t, "10000", cfg.Port)
 		assert.Equal(t, config.StorageTypeMemory, cfg.StorageType)
+		assert.Equal(t, config.AlgorithmSlidingWindow, cfg.RateLimitAlgorithm)
+		assert.True(t, cfg.FailOpen)
 		assert.Equal(t, 50, cfg.RateByIPMaxRequests)
 		assert.NotContains(t, buf.String(), "no .env file found")
 	})
@@ -153,6 +162,17 @@ func TestLoadConfig_DefaultsAndOverrides(t *testing.T) {
 		assert.Nil(t, cfg)
 		assert.Contains(t, err.Error(), "failed to unmarshal config")
 	})
+
+	t.Run("LoadConfigWithLogger returns error on invalid RATE_LIMIT_ALGORITHM", func(t *testing.T) {
+		t.Setenv("RATE_LIMIT_ALGORITHM", "leaky_bucket")
+		var buf bytes.Buffer
+		logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+		cfg, err := config.LoadConfigWithLogger(logger)
+		require.Error(t, err)
+		assert.Nil(t, cfg)
+		assert.Contains(t, err.Error(), "invalid RATE_LIMIT_ALGORITHM")
+	})
 }
 
 func TestConfig_Validate(t *testing.T) {
@@ -160,6 +180,7 @@ func TestConfig_Validate(t *testing.T) {
 		return &config.Config{
 			Port:                    "8080",
 			StorageType:             config.StorageTypeRedis,
+			RateLimitAlgorithm:      config.AlgorithmFixedWindow,
 			RedisURL:                "redis://localhost:6379/0",
 			RateByIPTimeWindow:      5,
 			RateByIPMaxRequests:     2,
@@ -229,6 +250,21 @@ func TestConfig_Validate(t *testing.T) {
 			name:    "invalid storage type",
 			mutate:  func(c *config.Config) { c.StorageType = "sqlite" },
 			wantErr: "invalid STORAGE_TYPE",
+		},
+		{
+			name:    "valid sliding window algorithm",
+			mutate:  func(c *config.Config) { c.RateLimitAlgorithm = config.AlgorithmSlidingWindow },
+			wantErr: "",
+		},
+		{
+			name:    "empty rate limit algorithm",
+			mutate:  func(c *config.Config) { c.RateLimitAlgorithm = "" },
+			wantErr: "invalid RATE_LIMIT_ALGORITHM",
+		},
+		{
+			name:    "invalid rate limit algorithm",
+			mutate:  func(c *config.Config) { c.RateLimitAlgorithm = "token_bucket" },
+			wantErr: "invalid RATE_LIMIT_ALGORITHM",
 		},
 		{
 			name:    "empty redis url when storage is redis",

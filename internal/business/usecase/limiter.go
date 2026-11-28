@@ -146,8 +146,9 @@ func (uc *rateLimiterUseCase) IsBlocked(ctx context.Context, key entity.LimiterK
 }
 
 func (uc *rateLimiterUseCase) resolvePolicy(ctx context.Context, ip, token string) (resolvedPolicy, error) {
-	if uc.cfg.EnableTokenLimiting && token != "" {
-		policy, found, err := uc.resolveTokenPolicy(ctx, token)
+	canonicalToken := entity.NormalizeTokenID(token)
+	if uc.cfg.EnableTokenLimiting && canonicalToken != "" {
+		policy, found, err := uc.resolveTokenPolicy(ctx, canonicalToken)
 		if err != nil {
 			return resolvedPolicy{}, err
 		}

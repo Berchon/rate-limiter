@@ -18,11 +18,6 @@ const tokenKeyPrefix = "token"
 
 var _ service.LimiterStore = (*InMemoryStore)(nil)
 
-type counterEntry struct {
-	count     int
-	expiresAt time.Time
-}
-
 type tokenConfigEntry struct {
 	cfg       entity.TokenConfig
 	expiresAt time.Time
@@ -33,23 +28,39 @@ type tokenConfigEntry struct {
 type InMemoryStore struct {
 	mu           sync.Mutex
 	now          func() time.Time
-	counters     map[string]counterEntry
+	strategy     windowStrategy
 	blocked      map[string]time.Time
 	tokenConfigs map[string]tokenConfigEntry
 }
 
-// NewInMemoryStore creates a new InMemoryStore backed by the system clock.
+// NewInMemoryStore creates a new InMemoryStore backed by the system clock using the fixed-window algorithm.
 func NewInMemoryStore() *InMemoryStore {
-	return newInMemoryStoreWithClock(time.Now)
+	return newInMemoryStore(newFixedWindowStrategy(), time.Now)
+}
+
+// NewInMemoryStoreWithAlgorithm creates a new InMemoryStore backed by the system clock and the given algorithm.
+func NewInMemoryStoreWithAlgorithm(alg service.Algorithm) (*InMemoryStore, error) {
+	strategy, err := newWindowStrategy(alg)
+	if err != nil {
+		return nil, err
+	}
+	return newInMemoryStore(strategy, time.Now), nil
 }
 
 func newInMemoryStoreWithClock(now func() time.Time) *InMemoryStore {
+	return newInMemoryStore(newFixedWindowStrategy(), now)
+}
+
+func newInMemoryStore(strategy windowStrategy, now func() time.Time) *InMemoryStore {
 	if now == nil {
 		now = time.Now
 	}
+	if strategy == nil {
+		strategy = newFixedWindowStrategy()
+	}
 	return &InMemoryStore{
 		now:          now,
-		counters:     make(map[string]counterEntry),
+		strategy:     strategy,
 		blocked:      make(map[string]time.Time),
 		tokenConfigs: make(map[string]tokenConfigEntry),
 	}
@@ -118,12 +129,12 @@ func (s *InMemoryStore) AddRequest(
 		return rejectedResult(remaining), nil
 	}
 
-	entry, resetSec := s.incrementCounterLocked(k, now, timeWindowSec)
-	if entry.count > maxRequests {
+	allowed, remaining, resetSec := s.strategy.record(k, now, maxRequests, timeWindowSec)
+	if !allowed {
 		return s.blockOrRejectLocked(k, now, blockedDuration, resetSec), nil
 	}
 
-	return allowedResult(maxRequests-entry.count, resetSec), nil
+	return allowedResult(remaining, resetSec), nil
 }
 
 // Block explicitly blocks the given key for durationSec seconds.
@@ -170,7 +181,7 @@ func (s *InMemoryStore) ResetKey(ctx context.Context, key entity.LimiterKey) err
 	defer s.mu.Unlock()
 
 	k := key.String()
-	delete(s.counters, k)
+	s.strategy.delete(k)
 	delete(s.blocked, k)
 	delete(s.tokenConfigs, k)
 	return nil
@@ -211,26 +222,10 @@ func (s *InMemoryStore) setBlockLocked(key string, now time.Time, durationSec in
 	s.blocked[key] = now.Add(secondsToDuration(durationSec))
 }
 
-func (s *InMemoryStore) incrementCounterLocked(key string, now time.Time, timeWindowSec int) (counterEntry, int64) {
-	entry, ok := s.counters[key]
-	if !ok || !now.Before(entry.expiresAt) {
-		entry = counterEntry{
-			count:     0,
-			expiresAt: now.Add(secondsToDuration(timeWindowSec)),
-		}
-	}
-
-	entry.count++
-	s.counters[key] = entry
-
-	resetSec := int64(durationToSeconds(entry.expiresAt.Sub(now)))
-	return entry, resetSec
-}
-
 func (s *InMemoryStore) blockOrRejectLocked(key string, now time.Time, blockedDuration int, resetSec int64) service.AddRequestResult {
 	if blockedDuration > 0 {
 		s.setBlockLocked(key, now, blockedDuration)
-		delete(s.counters, key)
+		s.strategy.delete(key)
 		return rejectedResult(blockedDuration)
 	}
 	return rejectedResult(int(resetSec))
@@ -309,7 +304,7 @@ func validateAddRequestArgs(maxRequests, timeWindowSec, blockedDuration int) err
 }
 
 func normalizeTokenID(token string) string {
-	return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(token), tokenKeyPrefix+":"))
+	return entity.NormalizeTokenID(token)
 }
 
 func tokenConfigKey(rawToken string) string {

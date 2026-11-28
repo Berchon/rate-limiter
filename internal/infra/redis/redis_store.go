@@ -3,7 +3,6 @@ package redis
 
 import (
 	"context"
-	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,27 +17,36 @@ import (
 
 const (
 	tokenKeyPrefix   = "token"
-	countKeySuffix   = ":count"
 	blockedKeySuffix = ":blocked"
 )
-
-//go:embed scripts/add_request.lua
-var addRequestLua string
-
-var addRequestScript = goredis.NewScript(addRequestLua)
 
 var _ service.LimiterStore = (*Store)(nil)
 
 // Store is a Redis-backed implementation of service.LimiterStore.
 type Store struct {
-	client *goredis.Client
+	client   *goredis.Client
+	strategy windowStrategy
 }
 
-// NewStore creates a new Store backed by the provided Redis client.
+// NewStore creates a new Store backed by the provided Redis client using the fixed-window algorithm.
 func NewStore(client *goredis.Client) *Store {
 	return &Store{
-		client: client,
+		client:   client,
+		strategy: fixedWindowStrategy{},
 	}
+}
+
+// NewStoreWithAlgorithm creates a new Store backed by the provided Redis client and rate-limiting algorithm.
+func NewStoreWithAlgorithm(client *goredis.Client, alg service.Algorithm) (*Store, error) {
+	strategy, err := newWindowStrategy(alg)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Store{
+		client:   client,
+		strategy: strategy,
+	}, nil
 }
 
 // SaveTokenConfig persists a token configuration in Redis with its configured TTL.
@@ -90,12 +98,12 @@ func (r *Store) GetConfigByToken(ctx context.Context, token string) (*entity.Tok
 	return &cfg, nil
 }
 
-// AddRequest atomically evaluates block state, increments the request counter within the window,
+// AddRequest atomically evaluates block state, updates the active rate-limit window,
 // and applies a temporary block if maxRequests is exceeded.
 func (r *Store) AddRequest(
 	ctx context.Context,
 	key entity.LimiterKey,
-	_ int64,
+	timestamp int64,
 	maxRequests, timeWindowSec, blockedDuration int,
 ) (service.AddRequestResult, error) {
 	if err := r.validateClientAndKey(key); err != nil {
@@ -105,8 +113,8 @@ func (r *Store) AddRequest(
 		return service.AddRequestResult{}, fmt.Errorf("adding request: %w", err)
 	}
 
-	keys := []string{countKey(key), blockedKey(key)}
-	res, err := addRequestScript.Run(ctx, r.client, keys, maxRequests, timeWindowSec, blockedDuration).Int64Slice()
+	strategy := r.activeStrategy()
+	res, err := strategy.addRequest(ctx, r.client, key, timestamp, maxRequests, timeWindowSec, blockedDuration)
 	if err != nil {
 		return service.AddRequestResult{}, fmt.Errorf("executing rate-limit script for %s: %w", key.String(), err)
 	}
@@ -155,16 +163,23 @@ func (r *Store) IsBlocked(ctx context.Context, key entity.LimiterKey) (service.B
 	return service.BlockStatus{}, nil
 }
 
-// ResetKey removes the counter, block state, and stored configuration keys for the given key.
+// ResetKey removes the rate-limit window, block state, and stored configuration keys for the given key.
 func (r *Store) ResetKey(ctx context.Context, key entity.LimiterKey) error {
 	if err := r.validateClientAndKey(key); err != nil {
 		return fmt.Errorf("resetting key: %w", err)
 	}
 
-	if err := r.client.Del(ctx, countKey(key), blockedKey(key), key.String()).Err(); err != nil {
+	if err := r.client.Del(ctx, countKey(key), logKey(key), blockedKey(key), key.String()).Err(); err != nil {
 		return fmt.Errorf("resetting key %s: %w", key.String(), err)
 	}
 	return nil
+}
+
+func (r *Store) activeStrategy() windowStrategy {
+	if r.strategy == nil {
+		return fixedWindowStrategy{}
+	}
+	return r.strategy
 }
 
 func (r *Store) validateClient() error {
@@ -230,15 +245,11 @@ func parseAddRequestResult(key entity.LimiterKey, res []int64) (service.AddReque
 }
 
 func normalizeTokenID(token string) string {
-	return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(token), tokenKeyPrefix+":"))
+	return entity.NormalizeTokenID(token)
 }
 
 func tokenConfigKey(rawToken string) string {
 	return entity.NewLimiterKey(tokenKeyPrefix, rawToken).String()
-}
-
-func countKey(key entity.LimiterKey) string {
-	return key.String() + countKeySuffix
 }
 
 func blockedKey(key entity.LimiterKey) string {

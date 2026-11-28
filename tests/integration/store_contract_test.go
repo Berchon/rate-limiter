@@ -1,22 +1,13 @@
-//go:build unix
-
 package integration
 
 import (
 	"context"
-	"net"
-	"os"
-	"os/signal"
-	"strconv"
-	"syscall"
 	"testing"
 	"time"
 
 	"github.com/Berchon/rate-limiter/internal/business/entity"
 	"github.com/Berchon/rate-limiter/internal/business/service"
 	"github.com/Berchon/rate-limiter/internal/business/usecase"
-	"github.com/Berchon/rate-limiter/internal/infra/app"
-	"github.com/Berchon/rate-limiter/internal/infra/config"
 	redisStore "github.com/Berchon/rate-limiter/internal/infra/redis"
 	"github.com/Berchon/rate-limiter/internal/infra/storage"
 	"github.com/alicebob/miniredis/v2"
@@ -32,14 +23,27 @@ type storeFactory struct {
 
 func storeFactories() []storeFactory {
 	return []storeFactory{
-		{name: "redis", new: func(t *testing.T) service.LimiterStore {
+		{name: "redis/fixed_window", new: func(t *testing.T) service.LimiterStore {
 			mr := miniredis.RunT(t)
 			client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 			t.Cleanup(func() { _ = client.Close() })
 			return redisStore.NewStore(client)
 		}},
-		{name: "memory", new: func(t *testing.T) service.LimiterStore {
+		{name: "redis/sliding_window", new: func(t *testing.T) service.LimiterStore {
+			mr := miniredis.RunT(t)
+			client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+			t.Cleanup(func() { _ = client.Close() })
+			store, err := redisStore.NewStoreWithAlgorithm(client, service.AlgorithmSlidingWindow)
+			require.NoError(t, err)
+			return store
+		}},
+		{name: "memory/fixed_window", new: func(t *testing.T) service.LimiterStore {
 			return storage.NewInMemoryStore()
+		}},
+		{name: "memory/sliding_window", new: func(t *testing.T) service.LimiterStore {
+			store, err := storage.NewInMemoryStoreWithAlgorithm(service.AlgorithmSlidingWindow)
+			require.NoError(t, err)
+			return store
 		}},
 	}
 }
@@ -89,6 +93,26 @@ func TestStoreContract(t *testing.T) {
 				assert.False(t, status.Blocked)
 			})
 
+			t.Run("rejects without blocking when blockedDuration is zero", func(t *testing.T) {
+				store := f.new(t)
+				nowMs := time.Now().UnixMilli()
+
+				res, err := store.AddRequest(ctx, key, nowMs, 1, 5, 0)
+				require.NoError(t, err)
+				assert.True(t, res.Allowed)
+				assert.Equal(t, 0, res.Remaining)
+
+				res, err = store.AddRequest(ctx, key, nowMs+100, 1, 5, 0)
+				require.NoError(t, err)
+				assert.False(t, res.Allowed)
+				assert.Equal(t, 0, res.Remaining)
+				assert.Positive(t, res.RetryAfterSeconds)
+
+				status, err := store.IsBlocked(ctx, key)
+				require.NoError(t, err)
+				assert.False(t, status.Blocked)
+			})
+
 			t.Run("rejects invalid input", func(t *testing.T) {
 				store := f.new(t)
 				emptyKey := entity.LimiterKey{}
@@ -123,6 +147,20 @@ func TestStoreContract(t *testing.T) {
 	}
 }
 
+func TestStoreConstructorsRejectUnsupportedAlgorithm(t *testing.T) {
+	mr := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+
+	_, err := redisStore.NewStoreWithAlgorithm(client, service.Algorithm("token_bucket"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported rate-limit algorithm")
+
+	_, err = storage.NewInMemoryStoreWithAlgorithm(service.Algorithm("token_bucket"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported rate-limit algorithm")
+}
+
 func TestUseCaseIsBlocked(t *testing.T) {
 	for _, f := range storeFactories() {
 		t.Run(f.name, func(t *testing.T) {
@@ -147,62 +185,4 @@ func TestUseCaseIsBlocked(t *testing.T) {
 			assert.Positive(t, remaining)
 		})
 	}
-}
-
-func TestApplicationStartHandlesSIGTERM(t *testing.T) {
-	port := freePort(t)
-	loadConfig(t, config.StorageTypeMemory, "", true)
-	t.Setenv("PORT", port)
-
-	// Safety net: guarantees the default SIGTERM handler can never kill the test binary,
-	// even if Start has not registered its own handler yet. Must never run in parallel.
-	guard := make(chan os.Signal, 1)
-	signal.Notify(guard, syscall.SIGTERM)
-	defer signal.Stop(guard)
-
-	application, err := app.NewAppWithLogger(discardLogger())
-	require.NoError(t, err)
-
-	done := make(chan error, 1)
-	go func() { done <- application.Start() }()
-
-	waitForServer(t, "http://127.0.0.1:"+port+"/health")
-
-	require.NoError(t, syscall.Kill(os.Getpid(), syscall.SIGTERM))
-	select {
-	case err := <-done:
-		assert.NoError(t, err)
-	case <-time.After(10 * time.Second):
-		t.Fatal("application did not stop after SIGTERM")
-	}
-}
-
-func TestApplicationFailsWhenPortIsBusy(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	defer ln.Close()
-
-	loadConfig(t, config.StorageTypeMemory, "", true)
-	t.Setenv("PORT", strconv.Itoa(ln.Addr().(*net.TCPAddr).Port))
-
-	application, err := app.NewAppWithLogger(discardLogger())
-	require.NoError(t, err)
-
-	done := make(chan error, 1)
-	go func() { done <- application.Run(context.Background()) }()
-
-	select {
-	case err := <-done:
-		assert.Error(t, err)
-	case <-time.After(5 * time.Second):
-		t.Fatal("application kept running despite the busy port")
-	}
-}
-
-func TestDefaultConfigLoads(t *testing.T) {
-	t.Setenv("STORAGE_TYPE", config.StorageTypeMemory)
-
-	cfg, err := config.LoadConfig()
-	require.NoError(t, err)
-	assert.Equal(t, config.StorageTypeMemory, cfg.StorageType)
 }

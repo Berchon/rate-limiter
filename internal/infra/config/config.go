@@ -19,12 +19,18 @@ const (
 	StorageTypeRedis = "redis"
 	// StorageTypeMemory selects in-memory storage as the rate-limiter backend.
 	StorageTypeMemory = "memory"
+
+	// AlgorithmFixedWindow selects the fixed-window counter rate-limiting algorithm.
+	AlgorithmFixedWindow = "fixed_window"
+	// AlgorithmSlidingWindow selects the sliding-window log rate-limiting algorithm.
+	AlgorithmSlidingWindow = "sliding_window"
 )
 
 // Config holds the application runtime configuration.
 type Config struct {
 	Port                    string        `mapstructure:"PORT"`
 	StorageType             string        `mapstructure:"STORAGE_TYPE"`
+	RateLimitAlgorithm      string        `mapstructure:"RATE_LIMIT_ALGORITHM"`
 	RedisURL                string        `mapstructure:"REDIS_URL"`
 	RateByIPTimeWindow      int           `mapstructure:"RATE_BY_IP_TIME_WINDOW"`
 	RateByIPMaxRequests     int           `mapstructure:"RATE_BY_IP_MAX_REQUESTS"`
@@ -58,6 +64,7 @@ func LoadConfigWithLogger(logger *slog.Logger) (*Config, error) {
 	// Defaults aligned with .env.example and safe HTTP server timeouts.
 	v.SetDefault("PORT", "8080")
 	v.SetDefault("STORAGE_TYPE", StorageTypeRedis)
+	v.SetDefault("RATE_LIMIT_ALGORITHM", AlgorithmFixedWindow)
 	v.SetDefault("REDIS_URL", "redis://localhost:6379/0")
 	v.SetDefault("RATE_BY_IP_TIME_WINDOW", 5)
 	v.SetDefault("RATE_BY_IP_MAX_REQUESTS", 2)
@@ -79,6 +86,7 @@ func LoadConfigWithLogger(logger *slog.Logger) (*Config, error) {
 
 	cfg.Port = strings.TrimSpace(cfg.Port)
 	cfg.StorageType = strings.ToLower(strings.TrimSpace(cfg.StorageType))
+	cfg.RateLimitAlgorithm = strings.ToLower(strings.TrimSpace(cfg.RateLimitAlgorithm))
 	cfg.RedisURL = strings.TrimSpace(cfg.RedisURL)
 
 	if err := cfg.Validate(); err != nil {
@@ -88,6 +96,7 @@ func LoadConfigWithLogger(logger *slog.Logger) (*Config, error) {
 	logger.Info("configuration loaded",
 		slog.String("port", cfg.Port),
 		slog.String("storage_type", cfg.StorageType),
+		slog.String("rate_limit_algorithm", cfg.RateLimitAlgorithm),
 		slog.String("redis_url", MaskRedisURL(cfg.RedisURL)),
 		slog.Int("rate_by_ip_time_window", cfg.RateByIPTimeWindow),
 		slog.Int("rate_by_ip_max_requests", cfg.RateByIPMaxRequests),
@@ -119,6 +128,12 @@ func (c *Config) Validate() error {
 	case StorageTypeRedis, StorageTypeMemory:
 	default:
 		return fmt.Errorf("invalid STORAGE_TYPE %q: must be %q or %q", c.StorageType, StorageTypeRedis, StorageTypeMemory)
+	}
+
+	switch c.RateLimitAlgorithm {
+	case AlgorithmFixedWindow, AlgorithmSlidingWindow:
+	default:
+		return fmt.Errorf("invalid RATE_LIMIT_ALGORITHM %q: must be %q or %q", c.RateLimitAlgorithm, AlgorithmFixedWindow, AlgorithmSlidingWindow)
 	}
 
 	if c.StorageType == StorageTypeRedis {
