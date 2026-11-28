@@ -655,3 +655,69 @@ func TestIsBlocked(t *testing.T) {
 		})
 	}
 }
+
+func TestAllowRequest_TokenNormalization(t *testing.T) {
+	now := time.Date(2026, 11, 27, 12, 0, 0, 0, time.UTC)
+	tokenCfg := &entity.TokenConfig{
+		Token:                  "secret-token-value",
+		MaxRequests:            100,
+		TimeWindowSeconds:      10,
+		BlockedDurationSeconds: 60,
+		TokenTTLSeconds:        3600,
+	}
+
+	t.Run("normalizes whitespace and repeated token prefixes before lookup and key construction", func(t *testing.T) {
+		for _, rawHeader := range []string{
+			"  secret-token-value  ",
+			"  token:secret-token-value  ",
+			"token:token:secret-token-value",
+			"  token: token: secret-token-value  ",
+		} {
+			var lookedUpToken string
+			var recordedKey entity.LimiterKey
+
+			store := &stubLimiterStore{
+				getConfigByTokenFn: func(_ context.Context, token string) (*entity.TokenConfig, error) {
+					lookedUpToken = token
+					return tokenCfg, nil
+				},
+				addRequestFn: func(_ context.Context, key entity.LimiterKey, _ int64, _, _, _ int) (service.AddRequestResult, error) {
+					recordedKey = key
+					return service.AddRequestResult{Allowed: true, Remaining: 99, ResetSeconds: 10}, nil
+				},
+			}
+
+			uc := NewRateLimiterUseCase(store, defaultTestConfig(), discardLogger())
+			decision, err := uc.AllowRequest(context.Background(), "192.0.2.1", rawHeader, now)
+			require.NoError(t, err, "header=%q", rawHeader)
+			assert.True(t, decision.Allowed, "header=%q", rawHeader)
+			assert.Equal(t, "secret-token-value", lookedUpToken, "header=%q", rawHeader)
+			assert.Equal(t, *entity.NewLimiterKey("token", "secret-token-value"), recordedKey, "header=%q", rawHeader)
+		}
+	})
+
+	t.Run("falls back to IP without querying store when token normalizes to empty", func(t *testing.T) {
+		for _, rawHeader := range []string{"   ", "  token:  ", "  token: token:  "} {
+			lookupCalled := false
+			var recordedKey entity.LimiterKey
+
+			store := &stubLimiterStore{
+				getConfigByTokenFn: func(_ context.Context, _ string) (*entity.TokenConfig, error) {
+					lookupCalled = true
+					return tokenCfg, nil
+				},
+				addRequestFn: func(_ context.Context, key entity.LimiterKey, _ int64, _, _, _ int) (service.AddRequestResult, error) {
+					recordedKey = key
+					return service.AddRequestResult{Allowed: true, Remaining: 9, ResetSeconds: 60}, nil
+				},
+			}
+
+			uc := NewRateLimiterUseCase(store, defaultTestConfig(), discardLogger())
+			decision, err := uc.AllowRequest(context.Background(), "192.0.2.2", rawHeader, now)
+			require.NoError(t, err, "header=%q", rawHeader)
+			assert.True(t, decision.Allowed, "header=%q", rawHeader)
+			assert.False(t, lookupCalled, "header=%q", rawHeader)
+			assert.Equal(t, *entity.NewLimiterKey("ip", "192.0.2.2"), recordedKey, "header=%q", rawHeader)
+		}
+	})
+}

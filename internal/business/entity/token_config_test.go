@@ -99,3 +99,33 @@ func TestTokenConfigDurations(t *testing.T) {
 		assert.Less(t, cfg.TTL(), time.Duration(0))
 	})
 }
+
+func TestNormalizeTokenID(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "raw token", input: "abc123", want: "abc123"},
+		{name: "surrounding whitespace", input: "  abc123  ", want: "abc123"},
+		{name: "single prefix", input: "token:abc123", want: "abc123"},
+		{name: "double prefix", input: "token:token:abc123", want: "abc123"},
+		{name: "spaced repeated prefixes", input: "  token: token: abc123  ", want: "abc123"},
+		{name: "empty string", input: "", want: ""},
+		{name: "whitespace only", input: "   ", want: ""},
+		{name: "prefix only", input: "token:", want: ""},
+		{name: "repeated prefixes only", input: "  token: token:  ", want: ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := entity.NormalizeTokenID(tc.input)
+			assert.Equal(t, tc.want, got)
+			assert.Equal(t, got, entity.NormalizeTokenID(got), "NormalizeTokenID must be idempotent")
+		})
+	}
+}
