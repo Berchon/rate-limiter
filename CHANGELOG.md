@@ -8,11 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Configurable `RATE_LIMIT_ALGORITHM` environment variable (`fixed_window` by default, supporting `sliding_window`) documented in `.env.example` and `docker-compose.yml`, wired through `internal/infra/di` into both Redis and in-memory backends.
+- Sliding Window Log rate-limiting strategy behind a dedicated `windowStrategy` interface in both `internal/infra/redis` (atomic Redis Sorted Set Lua script `scripts/sliding_window.lua` with unique request members, `PEXPIRE`, and orphan-key healing) and `internal/infra/storage` (lazy-pruned in-memory timestamp log with zero goroutines), covered by unit and integration tests.
 - Configurable `FAIL_OPEN` environment variable (`false` by default) to allow requests through with a structured warning log when the rate-limiter storage backend is unavailable, documented in `.env.example` and covered by unit and integration tests.
 - `WriteServiceUnavailable` HTTP response helper emitting `503 Service Unavailable` with JSON error body (`{"error": "service temporarily unavailable"}`).
 
 ### Changed
+- Renamed `internal/infra/redis/scripts/add_request.lua` to `fixed_window.lua` and separated `strategy.go`, `fixed_window.go`, and `sliding_window.go` (with matching test files) across `internal/infra/redis` and `internal/infra/storage`.
 - Updated `RateLimitMiddleware` fail-closed error handling (`FAIL_OPEN=false`) to return HTTP `503 Service Unavailable` instead of `429 Too Many Requests` when rate-limit evaluation fails due to storage unavailability.
+
+### Fixed
+- Normalized `API_KEY` tokens (trimming whitespace and optional `token:` prefix) in `RateLimiterUseCase.resolvePolicy` before lookup and `LimiterKey` construction, preventing header variations from creating separate rate-limit buckets for the same token.
 
 ## [0.3.0] - 2026-11-27
 
