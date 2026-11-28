@@ -7,6 +7,16 @@ import (
 	"github.com/Berchon/rate-limiter/internal/business/entity"
 )
 
+// Algorithm identifies the rate-limiting window algorithm used by a LimiterStore.
+type Algorithm string
+
+const (
+	// AlgorithmFixedWindow counts requests within discrete fixed-length time windows.
+	AlgorithmFixedWindow Algorithm = "fixed_window"
+	// AlgorithmSlidingWindow tracks exact request timestamps over a rolling time window.
+	AlgorithmSlidingWindow Algorithm = "sliding_window"
+)
+
 // AddRequestResult represents the typed outcome of recording a request in the store.
 type AddRequestResult struct {
 	Allowed           bool
